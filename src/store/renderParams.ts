@@ -24,7 +24,7 @@ function mergeParams(base: RenderParams, patch: Partial<RenderParams>): RenderPa
   return next;
 }
 
-function lerpParams(a: RenderParams, b: RenderParams, t: number): RenderParams {
+export function lerpParams(a: RenderParams, b: RenderParams, t: number): RenderParams {
   return {
     sunAzimuth: lerp(a.sunAzimuth, b.sunAzimuth, t),
     sunElevation: lerp(a.sunElevation, b.sunElevation, t),

@@ -75,14 +75,16 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
       if (paramState.isTransitioning) paramState.tickTransition(dt);
       if (cameraState.isTransitioning) cameraState.tickTransition(dt);
 
-      const wasPlaying = timelineState.isPlaying;
       timelineState.tick(dt, paramState.params);
 
-      const timeChanged = Math.abs(timelineState.currentTime - lastTimelineTimeRef.current) > 0.001;
-      const shouldInterpolate = timelineState.useWeatherPreset || timelineState.keyframes.length > 0;
+      const prevTimelineTime = lastTimelineTimeRef.current;
+      const timeChanged = Math.abs(timelineState.currentTime - prevTimelineTime) > 0.001 || prevTimelineTime < 0;
+      const hasKeyframes = timelineState.keyframes.length > 0;
+      const shouldInterpolate = timelineState.useWeatherPreset || hasKeyframes;
 
       if (timeChanged && shouldInterpolate) {
-        const interpolated = timelineState.getInterpolatedParams(timelineState.currentTime, paramState.params);
+        const baseForInterp = hasKeyframes ? paramState.params : paramState.params;
+        const interpolated = timelineState.getInterpolatedParams(timelineState.currentTime, baseForInterp);
         paramState.setParams(interpolated);
         lastTimelineTimeRef.current = timelineState.currentTime;
       }
