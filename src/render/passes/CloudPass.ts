@@ -13,6 +13,7 @@ const UNIFORMS = [
   "u_windOffset", "u_densityScale", "u_absorption", "u_ambientStrength",
   "u_ambientColor", "u_sunAttenuation",
   "u_cloudSteps", "u_lightSteps", "u_maxDistance", "u_lightStepSize", "u_time",
+  "u_checkerIndex",
   "u_cloudNoise",
 ];
 
@@ -29,7 +30,7 @@ export class CloudPass {
     this.vao = vao;
   }
 
-  render(ctx: FrameContext, noiseTex: WebGLTexture, target: WebGLFramebuffer | null, width: number, height: number, jitter: [number, number]): void {
+  render(ctx: FrameContext, noiseTex: WebGLTexture, target: WebGLFramebuffer | null, width: number, height: number, jitter: [number, number], checkerIndex = -1): void {
     const gl = this.gl;
     const u = this.info.uniforms;
     gl.bindFramebuffer(gl.FRAMEBUFFER, target);
@@ -43,7 +44,7 @@ export class CloudPass {
     gl.uniform3fv(u.u_camUp, ctx.up);
     gl.uniform1f(u.u_tanHalfFov, ctx.tanHalfFov);
     gl.uniform1f(u.u_aspect, ctx.aspect);
-    gl.uniform2f(u.u_resolution, ctx.resolution[0], ctx.resolution[1]);
+    gl.uniform2f(u.u_resolution, ctx.cloudResolution[0], ctx.cloudResolution[1]);
     gl.uniform2f(u.u_jitter, jitter[0], jitter[1]);
 
     gl.uniform3fv(u.u_sunDir, ctx.sunDir);
@@ -68,6 +69,7 @@ export class CloudPass {
     gl.uniform1f(u.u_maxDistance, ctx.maxDistance);
     gl.uniform1f(u.u_lightStepSize, ctx.lightStepSize);
     gl.uniform1f(u.u_time, ctx.time);
+    gl.uniform1i(u.u_checkerIndex, checkerIndex);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_3D, noiseTex);

@@ -37,6 +37,7 @@ uniform int u_lightSteps;
 uniform float u_maxDistance;
 uniform float u_lightStepSize;
 uniform float u_time;
+uniform int u_checkerIndex;
 
 uniform sampler3D u_cloudNoise;
 
@@ -98,6 +99,18 @@ float lightMarch(vec3 p) {
 }
 
 void main() {
+  // Checkerboard rendering: only render 1/16 of pixels when u_checkerIndex is 0-15.
+  // u_checkerIndex >= 16 means full render.
+  if (u_checkerIndex >= 0 && u_checkerIndex < 16) {
+    int cx = int(gl_FragCoord.x) % 4;
+    int cy = int(gl_FragCoord.y) % 4;
+    int idx = cy * 4 + cx;
+    if (idx != u_checkerIndex) {
+      // Discard to preserve framebuffer contents (we don't clear before rendering).
+      discard;
+    }
+  }
+
   vec2 uv = gl_FragCoord.xy / u_resolution + u_jitter;
   vec2 ndc = uv * 2.0 - 1.0;
   vec3 rd = normalize(u_camForward + u_camRight * (ndc.x * u_aspect * u_tanHalfFov) + u_camUp * (ndc.y * u_tanHalfFov));

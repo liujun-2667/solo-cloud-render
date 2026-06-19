@@ -18,6 +18,8 @@ import { PresentPass } from "./passes/PresentPass";
 interface RenderTargets {
   cloudTex: WebGLTexture;
   cloudFB: WebGLFramebuffer;
+  cloudHistoryTex: WebGLTexture;
+  cloudHistoryFB: WebGLFramebuffer;
   atmosphereTex: WebGLTexture;
   atmosphereFB: WebGLFramebuffer;
   historyA: WebGLTexture;
@@ -50,9 +52,10 @@ export class Renderer {
   private historyIndex = 0;
   private prevCameraKey = "";
   private staticFrames = 0;
-  private cloudSkipCounter = 0;
+  private checkerFrame = 0;
   private hasValidClouds = false;
   private firstFrame = true;
+  private lastCloudMs = 0;
 
   onStats: ((stats: RenderStats) => void) | null = null;
 
@@ -82,9 +85,11 @@ export class Renderer {
     const scale = Math.max(0.25, Math.min(1.5, resolutionScale));
     const w = Math.max(1, Math.round(displayWidth * scale));
     const h = Math.max(1, Math.round(displayHeight * scale));
-    // Clouds at 1/4 resolution (half each dimension) for performance.
-    const cw = Math.max(1, Math.round(w * 0.5));
-    const ch = Math.max(1, Math.round(h * 0.5));
+    // Cloud resolution scale adapts to overall quality:
+    // at 100% scale clouds are 0.5x, at 25% scale clouds are 0.25x (even lower for perf).
+    const cloudScale = 0.25 + scale * 0.25;
+    const cw = Math.max(1, Math.round(w * cloudScale));
+    const ch = Math.max(1, Math.round(h * cloudScale));
 
     if (this.targets && this.targets.width === w && this.targets.height === h &&
         this.targets.cloudWidth === cw && this.targets.cloudHeight === ch) {
@@ -102,6 +107,14 @@ export class Renderer {
     const cloudFB = createFramebuffer(gl);
     attachTextureToFramebuffer(gl, cloudFB, cloudTex);
     checkFramebuffer(gl, "cloud");
+
+    const cloudHistoryTex = createFloatTexture(gl, {
+      width: cw, height: ch,
+      internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT,
+    });
+    const cloudHistoryFB = createFramebuffer(gl);
+    attachTextureToFramebuffer(gl, cloudHistoryFB, cloudHistoryTex);
+    checkFramebuffer(gl, "cloudHistory");
 
     const atmosphereTex = createFloatTexture(gl, {
       width: w, height: h,
@@ -127,7 +140,7 @@ export class Renderer {
     checkFramebuffer(gl, "historyB");
 
     this.targets = {
-      cloudTex, cloudFB,
+      cloudTex, cloudFB, cloudHistoryTex, cloudHistoryFB,
       atmosphereTex, atmosphereFB,
       historyA, historyB, historyAFB, historyBFB,
       width: w, height: h, cloudWidth: cw, cloudHeight: ch,
@@ -137,6 +150,10 @@ export class Renderer {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, historyBFB);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, cloudHistoryFB);
+    gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.hasValidClouds = false;
@@ -149,7 +166,13 @@ export class Renderer {
     const gl = this.gl;
     const t = this.targets;
     const cam = new OrbitCamera(camera);
-    const ctx = buildFrameContext(params, cam, t.width, t.height, t.cloudWidth, t.cloudHeight, time);
+
+    // Quality scaling: lower resolution → fewer ray-march steps for better perf.
+    // Use resolutionScale from params (1.0 = full quality, 0.25 = lowest quality).
+    const qualityScale = Math.max(0.25, Math.min(1.0, params.resolutionScale));
+    const adjustedParams = this.applyQualityScale(params, qualityScale);
+
+    const ctx = buildFrameContext(adjustedParams, cam, t.width, t.height, t.cloudWidth, t.cloudHeight, time);
 
     // Detect camera motion to adapt TAA blend and temporal cloud reuse.
     const cameraKey = `${cam.azimuth.toFixed(3)}|${cam.elevation.toFixed(3)}|${cam.fov.toFixed(3)}`;
@@ -157,26 +180,46 @@ export class Renderer {
     this.prevCameraKey = cameraKey;
     if (moved) {
       this.staticFrames = 0;
-      this.cloudSkipCounter = 0;
+      this.checkerFrame = 0;
     } else {
       this.staticFrames++;
     }
 
     const jitter = this.computeJitter(t.width, t.height);
 
-    // Pass 1: volumetric clouds at quarter resolution.
-    // Temporal reuse: when the camera is static for a few frames, render clouds
-    // every other frame and reuse the previous result on skipped frames. Wind
-    // animation is subtle so half-rate is visually acceptable and boosts FPS.
-    const reuseClouds = this.staticFrames > 2 && this.cloudSkipCounter++ % 2 === 1 && this.hasValidClouds;
-    let cloudMs = 0;
-    if (!reuseClouds) {
+    // Pass 1: volumetric clouds at reduced resolution with checkerboard temporal reuse.
+    // - When camera is moving or just settled (<= 2 static frames): full render every frame.
+    // - When camera is static for > 2 frames: render 1/16 pixels per frame in a
+    //   4x4 checkerboard pattern, reusing the other 15/16 from the history buffer.
+    //   This gives ~16x speedup for cloud rendering when the view is static.
+    const useCheckerboard = this.staticFrames > 2 && this.hasValidClouds;
+    let cloudMs = this.lastCloudMs;
+
+    if (!useCheckerboard) {
+      // Full render: clear and render all pixels.
       const s0 = performance.now();
-      this.cloudPass.render(ctx, this.noiseTex, t.cloudFB, t.cloudWidth, t.cloudHeight, jitter);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.cloudHistoryFB);
+      gl.viewport(0, 0, t.cloudWidth, t.cloudHeight);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      this.cloudPass.render(ctx, this.noiseTex, t.cloudHistoryFB, t.cloudWidth, t.cloudHeight, jitter, -1);
       gl.flush();
       cloudMs = performance.now() - s0;
+      this.lastCloudMs = cloudMs;
       this.hasValidClouds = true;
+    } else {
+      // Checkerboard update: render only 1/16 of pixels, preserve the rest.
+      const checkerIndex = this.checkerFrame % 16;
+      const s0 = performance.now();
+      // Don't clear - we want to keep existing pixels from previous frames.
+      this.cloudPass.render(ctx, this.noiseTex, t.cloudHistoryFB, t.cloudWidth, t.cloudHeight, jitter, checkerIndex);
+      gl.flush();
+      const actualMs = performance.now() - s0;
+      // Estimate full-frame equivalent time for stats (16x since only 1/16 work done).
+      cloudMs = actualMs * 16;
+      this.lastCloudMs = cloudMs;
     }
+    this.checkerFrame++;
 
     // Pass 2: atmospheric scattering at full resolution.
     const a0 = performance.now();
@@ -194,7 +237,7 @@ export class Renderer {
 
     const c0 = performance.now();
     this.compositePass.render(
-      ctx, t.cloudTex, t.atmosphereTex, readHistory, writeFB,
+      ctx, t.cloudHistoryTex, t.atmosphereTex, readHistory, writeFB,
       t.width, t.height, jitter, blendFactor,
     );
     gl.flush();
@@ -218,6 +261,16 @@ export class Renderer {
         resolution: [t.width, t.height],
       });
     }
+  }
+
+  private applyQualityScale(params: RenderParams, scale: number): RenderParams {
+    // Non-linear scaling: steps drop faster at lower quality for bigger perf gains.
+    const stepScale = Math.pow(scale, 0.7);
+    return {
+      ...params,
+      atmosphereSteps: Math.max(8, Math.round(params.atmosphereSteps * stepScale)),
+      cloudSteps: Math.max(16, Math.round(params.cloudSteps * stepScale)),
+    };
   }
 
   private computeJitter(w: number, h: number): [number, number] {
@@ -347,6 +400,8 @@ export class Renderer {
     const t = this.targets;
     gl.deleteTexture(t.cloudTex);
     gl.deleteFramebuffer(t.cloudFB);
+    gl.deleteTexture(t.cloudHistoryTex);
+    gl.deleteFramebuffer(t.cloudHistoryFB);
     gl.deleteTexture(t.atmosphereTex);
     gl.deleteFramebuffer(t.atmosphereFB);
     gl.deleteTexture(t.historyA);
