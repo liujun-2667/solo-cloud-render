@@ -46,6 +46,8 @@ function lerpParams(a: RenderParams, b: RenderParams, t: number): RenderParams {
     atmosphereSteps: Math.round(lerp(a.atmosphereSteps, b.atmosphereSteps, t)),
     cloudSteps: Math.round(lerp(a.cloudSteps, b.cloudSteps, t)),
     resolutionScale: lerp(a.resolutionScale, b.resolutionScale, t),
+    visibility: lerp(a.visibility, b.visibility, t),
+    cloudShadowStrength: lerp(a.cloudShadowStrength, b.cloudShadowStrength, t),
   };
 }
 

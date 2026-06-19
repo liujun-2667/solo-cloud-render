@@ -10,6 +10,7 @@ import { ControlPanel } from "@/components/ControlPanel";
 import { PresetBar } from "@/components/PresetBar";
 import { Toolbar } from "@/components/Toolbar";
 import { StatsOverlay } from "@/components/StatsOverlay";
+import { Timeline } from "@/components/Timeline";
 import { cn } from "@/lib/utils";
 
 export default function Home() {
@@ -69,6 +70,13 @@ export default function Home() {
 
           <div className="pointer-events-auto rounded-xl glass px-2 py-1.5 shadow-panel">
             <Toolbar canvas={canvasRef.current} accent={accent} onScreenshot={onScreenshot} />
+          </div>
+        </div>
+
+        {/* Timeline */}
+        <div className="pointer-events-auto absolute inset-x-0 bottom-20 z-20 px-4">
+          <div className="mx-auto max-w-4xl">
+            <Timeline accent={accent} />
           </div>
         </div>
 

@@ -54,6 +54,8 @@ export function ControlPanel({ accent }: { accent: string }) {
           <ParamSlider paramKey="mieG" label="Mie 各向异性 g" value={params.mieG} accent={accent} />
           <ParamSlider paramKey="rayleighScaleHeight" label="Rayleigh 标高" value={params.rayleighScaleHeight} accent={accent} />
           <ParamSlider paramKey="mieScaleHeight" label="Mie 标高" value={params.mieScaleHeight} accent={accent} />
+          <ParamSlider paramKey="visibility" label="能见度" value={params.visibility} accent={accent} />
+          <ParamSlider paramKey="cloudShadowStrength" label="云阴影强度" value={params.cloudShadowStrength} accent={accent} />
         </CollapsibleSection>
 
         {/* Clouds */}

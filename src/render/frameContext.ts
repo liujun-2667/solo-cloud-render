@@ -50,6 +50,10 @@ export interface FrameContext {
   maxDistance: number;
   lightStepSize: number;
   time: number;
+
+  visibility: number;
+  cloudShadowStrength: number;
+  fogColor: Vec3;
 }
 
 export function buildFrameContext(
@@ -121,6 +125,12 @@ export function buildFrameContext(
   const maxDistance = 150000.0;
   const lightStepSize = params.cloudThickness / cloudLightSteps * 0.8 + 1200.0;
 
+  const fogColor: Vec3 = [
+    0.75 + sunColor[0] * 0.1,
+    0.78 + sunColor[1] * 0.1,
+    0.82 + sunColor[2] * 0.05,
+  ];
+
   return {
     camPos: camera.position,
     forward: basis.forward,
@@ -166,6 +176,10 @@ export function buildFrameContext(
     maxDistance,
     lightStepSize,
     time: time * 0.001,
+
+    visibility: params.visibility,
+    cloudShadowStrength: params.cloudShadowStrength,
+    fogColor,
   };
 }
 

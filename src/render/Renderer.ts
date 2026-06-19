@@ -223,7 +223,7 @@ export class Renderer {
 
     // Pass 2: atmospheric scattering at full resolution.
     const a0 = performance.now();
-    this.atmospherePass.render(ctx, t.atmosphereFB, t.width, t.height, jitter);
+    this.atmospherePass.render(ctx, this.noiseTex, t.atmosphereFB, t.width, t.height, jitter);
     gl.flush();
     const atmosphereMs = performance.now() - a0;
 
@@ -342,7 +342,7 @@ export class Renderer {
         (halton(i + 1, 3) - 0.5) / targetHeight,
       ];
       this.cloudPass.render(ctx, this.noiseTex, cloudFB, cw, ch, jitter);
-      this.atmospherePass.render(ctx, atmosphereFB, targetWidth, targetHeight, jitter);
+      this.atmospherePass.render(ctx, this.noiseTex, atmosphereFB, targetWidth, targetHeight, jitter);
       // Accumulate as an EMA with blend = 1/samples for an approximate average.
       this.compositePass.render(
         ctx, cloudTex, atmosphereTex, readAccum, writeFB,

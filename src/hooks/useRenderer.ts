@@ -3,6 +3,7 @@ import { Renderer } from "@/render/Renderer";
 import { useParamsStore } from "@/store/renderParams";
 import { useCameraStore } from "@/store/camera";
 import { useStatsStore } from "@/store/stats";
+import { useTimelineStore } from "@/store/timeline";
 import type { Renderer as RendererType } from "@/render/Renderer";
 
 export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -11,6 +12,7 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const lastTimeRef = useRef<number>(0);
   const lastScaleRef = useRef<number>(1);
   const lastSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const lastTimelineTimeRef = useRef<number>(-1);
   const fpsAccumRef = useRef<{ frames: number; startTime: number; fps: number }>({
     frames: 0,
     startTime: 0,
@@ -69,8 +71,21 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
       const paramState = useParamsStore.getState();
       const cameraState = useCameraStore.getState();
+      const timelineState = useTimelineStore.getState();
       if (paramState.isTransitioning) paramState.tickTransition(dt);
       if (cameraState.isTransitioning) cameraState.tickTransition(dt);
+
+      const wasPlaying = timelineState.isPlaying;
+      timelineState.tick(dt, paramState.params);
+
+      const timeChanged = Math.abs(timelineState.currentTime - lastTimelineTimeRef.current) > 0.001;
+      const shouldInterpolate = timelineState.useWeatherPreset || timelineState.keyframes.length > 0;
+
+      if (timeChanged && shouldInterpolate) {
+        const interpolated = timelineState.getInterpolatedParams(timelineState.currentTime, paramState.params);
+        paramState.setParams(interpolated);
+        lastTimelineTimeRef.current = timelineState.currentTime;
+      }
 
       // Re-resize if the quality scale changed since last frame.
       if (paramState.params.resolutionScale !== lastScaleRef.current) {

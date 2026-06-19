@@ -24,6 +24,9 @@ export interface RenderParams {
   atmosphereSteps: number;
   cloudSteps: number;
   resolutionScale: number;
+
+  visibility: number;
+  cloudShadowStrength: number;
 }
 
 export interface CameraState {
@@ -55,4 +58,24 @@ export interface RenderStats {
   atmosphereMs: number;
   compositeMs: number;
   resolution: [number, number];
+}
+
+export interface Keyframe {
+  id: string;
+  time: number;
+  params: RenderParams;
+}
+
+export interface TimelineState {
+  currentTime: number;
+  isPlaying: boolean;
+  playbackSpeed: number;
+  keyframes: Keyframe[];
+  setCurrentTime: (time: number) => void;
+  setPlaying: (playing: boolean) => void;
+  setPlaybackSpeed: (speed: number) => void;
+  addKeyframe: (time: number, params: RenderParams) => void;
+  removeKeyframe: (id: string) => void;
+  tick: (dtMs: number) => RenderParams | null;
+  reset: () => void;
 }

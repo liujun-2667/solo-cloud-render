@@ -37,6 +37,9 @@ export const DEFAULT_RENDER_PARAMS: RenderParams = {
   atmosphereSteps: 32,
   cloudSteps: 64,
   resolutionScale: 1.0,
+
+  visibility: 30000,
+  cloudShadowStrength: 0.6,
 };
 
 export const DEFAULT_CAMERA: CameraState = {
@@ -68,4 +71,6 @@ export const PARAM_META: Record<
   atmosphereSteps: { min: 8, max: 64, step: 1, unit: "" },
   cloudSteps: { min: 16, max: 96, step: 2, unit: "" },
   resolutionScale: { min: 0.25, max: 1, step: 0.05, unit: "" },
+  visibility: { min: 1000, max: 100000, step: 500, unit: "m" },
+  cloudShadowStrength: { min: 0, max: 1, step: 0.01, unit: "" },
 };

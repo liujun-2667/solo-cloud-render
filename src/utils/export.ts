@@ -1,6 +1,7 @@
 import { useParamsStore } from "@/store/renderParams";
 import { useCameraStore } from "@/store/camera";
 import { usePresetStore } from "@/store/preset";
+import { useTimelineStore } from "@/store/timeline";
 import type { RenderParams, CameraState } from "@/types";
 import { encodeGif, quantizeToIndexed, type GifFrame } from "./gif";
 
@@ -78,14 +79,23 @@ export async function recordGif(
   const ctx = off.getContext("2d", { willReadFrequently: true })!;
 
   const startAz = useCameraStore.getState().camera.azimuth;
+  const timelineState = useTimelineStore.getState();
+  const hasKeyframes = timelineState.keyframes.length > 0;
+  const startTime = timelineState.currentTime;
   const frames: GifFrame[] = [];
 
   for (let i = 0; i < frameCount; i++) {
-    if (rotate) {
-      const t = i / frameCount;
+    const t = i / frameCount;
+
+    if (hasKeyframes) {
+      const newTime = (startTime + t * 24) % 24;
+      const params = useParamsStore.getState().params;
+      const interpolated = timelineState.getInterpolatedParams(newTime, params);
+      useParamsStore.getState().setParams(interpolated);
+    } else if (rotate) {
       useCameraStore.getState().setAzimuth(startAz + t * 360);
     }
-    // Wait for two animation frames so the render loop paints the new camera.
+
     await nextFrame();
     await nextFrame();
     ctx.drawImage(canvas, 0, 0, w, h);
@@ -93,6 +103,12 @@ export async function recordGif(
     const indexed = quantizeToIndexed(img, w, h);
     frames.push({ indexed, width: w, height: h, delayCs });
     opts.onProgress?.((i + 1) / frameCount);
+  }
+
+  if (hasKeyframes) {
+    const params = useParamsStore.getState().params;
+    const interpolated = timelineState.getInterpolatedParams(startTime, params);
+    useParamsStore.getState().setParams(interpolated);
   }
 
   return encodeGif(frames, 0);
