@@ -1,4 +1,4 @@
-import type { RenderParams, CameraState, RenderStats } from "@/types";
+import type { RenderParams, CameraState, RenderStats, WeatherType, RainIntensity } from "@/types";
 import { OrbitCamera } from "./Camera";
 import {
   createGLContext,
@@ -63,6 +63,32 @@ export class Renderer {
   private lastWeatherMs = 0;
 
   onStats: ((stats: RenderStats) => void) | null = null;
+
+  setWeatherState(
+    type: WeatherType,
+    rainIntensity: RainIntensity,
+    densityMultiplier: number,
+    windInfluence: number,
+    time: number,
+  ): void {
+    this.weatherPass.setWeatherState(type, rainIntensity, densityMultiplier, windInfluence, time);
+  }
+
+  setWeatherTransitionDuration(duration: number): void {
+    this.weatherPass.setTransitionDuration(duration);
+  }
+
+  getWeatherCoverageOffset(): number {
+    return this.weatherPass.getWeatherCoverageOffset();
+  }
+
+  getWeatherWindMultiplier(): number {
+    return this.weatherPass.getWeatherWindMultiplier();
+  }
+
+  setBaseWeatherParams(baseCoverage: number, baseWindSpeed: number): void {
+    this.weatherPass.setBaseParams(baseCoverage, baseWindSpeed);
+  }
 
   constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
     this.canvas = canvas;

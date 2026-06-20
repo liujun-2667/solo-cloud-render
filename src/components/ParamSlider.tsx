@@ -8,9 +8,10 @@ interface ParamSliderProps {
   value: number;
   accent?: string;
   className?: string;
+  disabled?: boolean;
 }
 
-export function ParamSlider({ paramKey, label, value, accent, className }: ParamSliderProps) {
+export function ParamSlider({ paramKey, label, value, accent, className, disabled = false }: ParamSliderProps) {
   const meta = PARAM_META[paramKey];
   const setParams = useParamsStore((s) => s.setParams);
 
@@ -19,7 +20,7 @@ export function ParamSlider({ paramKey, label, value, accent, className }: Param
   const display = meta ? formatDisplay(value, meta.step) : String(value);
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-1.5", className, disabled && "opacity-50 pointer-events-none")}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[12px] text-cloud-dim">{label}</span>
         <span className="font-mono text-[11px] text-cloud tabular-nums">
@@ -35,6 +36,7 @@ export function ParamSlider({ paramKey, label, value, accent, className }: Param
         step={meta?.step ?? 0.01}
         value={value}
         onChange={(e) => setParams({ [paramKey]: parseFloat(e.target.value) } as never)}
+        disabled={disabled}
         style={{
           background: `linear-gradient(to right, ${accentColor}cc 0%, ${accentColor}55 ${pct}%, rgba(255,255,255,0.08) ${pct}%, rgba(255,255,255,0.08) 100%)`,
         }}

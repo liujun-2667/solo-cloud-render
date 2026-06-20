@@ -5,6 +5,8 @@ import { useCameraStore } from "@/store/camera";
 import { useStatsStore } from "@/store/stats";
 import { useTimelineStore } from "@/store/timeline";
 import type { Renderer as RendererType } from "@/render/Renderer";
+import type { RenderParams } from "@/types";
+import { clamp } from "@/utils/math";
 
 export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const rendererRef = useRef<RendererType | null>(null);
@@ -13,6 +15,10 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const lastScaleRef = useRef<number>(1);
   const lastSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const lastTimelineTimeRef = useRef<number>(-1);
+  const lastWeatherTypeRef = useRef<string>("clear");
+  const lastRainIntensityRef = useRef<string>("moderate");
+  const lastDensityRef = useRef<number>(1);
+  const lastWindInfluenceRef = useRef<number>(1);
   const fpsAccumRef = useRef<{ frames: number; startTime: number; fps: number }>({
     frames: 0,
     startTime: 0,
@@ -53,6 +59,57 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
+    const applyWeatherOffset = (params: RenderParams, time: number): RenderParams => {
+      const timelineState = useTimelineStore.getState();
+
+      if (timelineState.weatherLocked) {
+        return params;
+      }
+
+      const offset = timelineState.getWeatherCloudOffset(time);
+
+      return {
+        ...params,
+        coverage: clamp(params.coverage + offset.coverageOffset, 0, 1),
+        windSpeed: clamp(params.windSpeed * offset.windMultiplier, 0, 3),
+      };
+    };
+
+    const updateWeatherPass = (params: RenderParams, time: number): void => {
+      const timelineState = useTimelineStore.getState();
+      const weatherType = params.weatherType;
+      const rainIntensity = params.rainIntensity;
+      const density = params.particleDensityMultiplier;
+      const windInfluence = params.windParticleInfluence;
+
+      const duration = timelineState.weatherTransitionDuration;
+      renderer.setWeatherTransitionDuration(duration);
+
+      renderer.setBaseWeatherParams(
+        useParamsStore.getState().params.coverage,
+        useParamsStore.getState().params.windSpeed,
+      );
+
+      const typeChanged = weatherType !== lastWeatherTypeRef.current;
+      const intensityChanged = rainIntensity !== lastRainIntensityRef.current;
+      const densityChanged = Math.abs(density - lastDensityRef.current) > 0.001;
+      const windChanged = Math.abs(windInfluence - lastWindInfluenceRef.current) > 0.001;
+
+      if (typeChanged || intensityChanged || densityChanged || windChanged) {
+        renderer.setWeatherState(
+          weatherType,
+          rainIntensity,
+          density,
+          windInfluence,
+          time * 0.001,
+        );
+        lastWeatherTypeRef.current = weatherType;
+        lastRainIntensityRef.current = rainIntensity;
+        lastDensityRef.current = density;
+        lastWindInfluenceRef.current = windInfluence;
+      }
+    };
+
     const loop = (now: number) => {
       const last = lastTimeRef.current || now;
       const dt = now - last;
@@ -80,16 +137,22 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
       const prevTimelineTime = lastTimelineTimeRef.current;
       const timeChanged = Math.abs(timelineState.currentTime - prevTimelineTime) > 0.001 || prevTimelineTime < 0;
       const hasKeyframes = timelineState.keyframes.length > 0;
-      const shouldInterpolate = timelineState.useWeatherPreset || hasKeyframes;
+      const shouldInterpolate = timelineState.useWeatherPreset || hasKeyframes || timelineState.useWeatherKeyframes;
+
+      let renderParams = paramState.params;
 
       if (timeChanged && shouldInterpolate) {
         const baseForInterp = hasKeyframes ? paramState.params : paramState.params;
         const interpolated = timelineState.getInterpolatedParams(timelineState.currentTime, baseForInterp);
         paramState.setParams(interpolated);
+        renderParams = interpolated;
         lastTimelineTimeRef.current = timelineState.currentTime;
       }
 
-      // Re-resize if the quality scale changed since last frame.
+      renderParams = applyWeatherOffset(renderParams, timelineState.currentTime);
+
+      updateWeatherPass(renderParams, now);
+
       if (paramState.params.resolutionScale !== lastScaleRef.current) {
         const { w, h } = lastSizeRef.current;
         if (w > 0 && h > 0) {
@@ -98,7 +161,7 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
         }
       }
 
-      renderer.renderFrame(paramState.params, cameraState.camera, now);
+      renderer.renderFrame(renderParams, cameraState.camera, now);
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);

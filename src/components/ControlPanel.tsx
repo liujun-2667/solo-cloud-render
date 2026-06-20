@@ -1,6 +1,7 @@
-import { Sun, Wind, Cloud, Gauge, RotateCcw, CloudRain, Snowflake, CloudLightning } from "lucide-react";
+import { Sun, Wind, Cloud, Gauge, RotateCcw, CloudRain, Snowflake, CloudLightning, Lock, Unlock } from "lucide-react";
 import { useParamsStore } from "@/store/renderParams";
 import { usePresetStore } from "@/store/preset";
+import { useTimelineStore } from "@/store/timeline";
 import { DEFAULT_RENDER_PARAMS } from "@/render/constants";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ParamSlider } from "./ParamSlider";
@@ -12,6 +13,33 @@ export function ControlPanel({ accent }: { accent: string }) {
   const setParams = useParamsStore((s) => s.setParams);
   const reset = useParamsStore((s) => s.reset);
   const activeId = usePresetStore((s) => s.activePresetId);
+
+  const isPlaying = useTimelineStore((s) => s.isPlaying);
+  const currentTime = useTimelineStore((s) => s.currentTime);
+  const weatherLocked = useTimelineStore((s) => s.weatherLocked);
+  const setPlaying = useTimelineStore((s) => s.setPlaying);
+  const setWeatherLocked = useTimelineStore((s) => s.setWeatherLocked);
+  const addWeatherKeyframe = useTimelineStore((s) => s.addWeatherKeyframe);
+
+  const handleWeatherTypeChange = (type: WeatherType) => {
+    if (weatherLocked) return;
+
+    if (isPlaying) {
+      setPlaying(false);
+      addWeatherKeyframe(currentTime, type, params.rainIntensity, params.particleDensityMultiplier, params.windParticleInfluence);
+    }
+    setParams({ weatherType: type });
+  };
+
+  const handleRainIntensityChange = (intensity: RainIntensity) => {
+    if (weatherLocked) return;
+
+    if (isPlaying && params.weatherType === "rain") {
+      setPlaying(false);
+      addWeatherKeyframe(currentTime, params.weatherType, intensity, params.particleDensityMultiplier, params.windParticleInfluence);
+    }
+    setParams({ rainIntensity: intensity });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -72,14 +100,30 @@ export function ControlPanel({ accent }: { accent: string }) {
 
         {/* Weather Effects */}
         <CollapsibleSection id="weather" title="天气效果" icon={<CloudRain size={14} />} accent={accent}>
-          <WeatherTypeGroup value={params.weatherType} onChange={(v) => setParams({ weatherType: v })} accent={accent} />
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] text-cloud-dim">天气锁定</span>
+            <button
+              onClick={() => setWeatherLocked(!weatherLocked)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors",
+                weatherLocked
+                  ? "text-amber-400 bg-amber-400/10"
+                  : "text-cloud-dim hover:text-cloud hover:bg-white/5",
+              )}
+            >
+              {weatherLocked ? <Lock size={12} /> : <Unlock size={12} />}
+              {weatherLocked ? "已锁定" : "未锁定"}
+            </button>
+          </div>
+
+          <WeatherTypeGroup value={params.weatherType} onChange={handleWeatherTypeChange} accent={accent} disabled={weatherLocked} />
           {params.weatherType === "rain" && (
-            <RainIntensityGroup value={params.rainIntensity} onChange={(v) => setParams({ rainIntensity: v })} accent={accent} />
+            <RainIntensityGroup value={params.rainIntensity} onChange={handleRainIntensityChange} accent={accent} disabled={weatherLocked} />
           )}
-          <ParamSlider paramKey="particleDensityMultiplier" label="粒子密度倍率" value={params.particleDensityMultiplier} accent={accent} />
-          <ParamSlider paramKey="windParticleInfluence" label="风对粒子影响系数" value={params.windParticleInfluence} accent={accent} />
+          <ParamSlider paramKey="particleDensityMultiplier" label="粒子密度倍率" value={params.particleDensityMultiplier} accent={accent} disabled={weatherLocked} />
+          <ParamSlider paramKey="windParticleInfluence" label="风对粒子影响系数" value={params.windParticleInfluence} accent={accent} disabled={weatherLocked} />
           {params.weatherType === "snow" && (
-            <ParamSlider paramKey="snowAccumulation" label="积雪量" value={params.snowAccumulation} accent={accent} />
+            <ParamSlider paramKey="snowAccumulation" label="积雪量" value={params.snowAccumulation} accent={accent} disabled={weatherLocked} />
           )}
           {params.weatherType === "rain" && params.rainIntensity === "storm" && (
             <ToggleRow
@@ -87,7 +131,16 @@ export function ControlPanel({ accent }: { accent: string }) {
               checked={params.lightningEnabled}
               onChange={(v) => setParams({ lightningEnabled: v })}
               accent={accent}
+              disabled={weatherLocked}
             />
+          )}
+
+          {weatherLocked && (
+            <div className="mt-2 p-2 rounded-md bg-amber-400/5 border border-amber-400/20">
+              <p className="text-[10px] text-amber-400/80">
+                天气已锁定，时间轴播放不会影响天气参数。关闭锁定后可恢复联动。
+              </p>
+            </div>
           )}
         </CollapsibleSection>
 
@@ -177,19 +230,22 @@ function ToggleRow({
   checked,
   onChange,
   accent,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   accent: string;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between py-1">
+    <div className={cn("flex items-center justify-between py-1", disabled && "opacity-50 pointer-events-none")}>
       <span className="text-[12px] text-cloud-dim">{label}</span>
       <button
         onClick={() => onChange(!checked)}
         className={cn("toggle-track relative h-5 w-9 rounded-full", checked ? "" : "bg-white/10")}
         style={checked ? { background: accent } : undefined}
+        disabled={disabled}
       >
         <span
           className={cn("toggle-knob absolute top-0.5 h-4 w-4 rounded-full bg-white shadow", checked ? "left-[18px]" : "left-0.5")}
@@ -203,10 +259,12 @@ function WeatherTypeGroup({
   value,
   onChange,
   accent,
+  disabled = false,
 }: {
   value: WeatherType;
   onChange: (v: WeatherType) => void;
   accent: string;
+  disabled?: boolean;
 }) {
   const options: { value: WeatherType; label: string; icon: React.ReactNode }[] = [
     { value: "clear", label: "晴", icon: <Sun size={12} /> },
@@ -215,7 +273,7 @@ function WeatherTypeGroup({
   ];
 
   return (
-    <div className="space-y-2">
+    <div className={cn("space-y-2", disabled && "opacity-50 pointer-events-none")}>
       <div className="text-[12px] text-cloud-dim">天气类型</div>
       <div className="grid grid-cols-3 gap-1.5">
         {options.map((opt) => {
@@ -229,6 +287,7 @@ function WeatherTypeGroup({
                 active ? "text-white" : "text-cloud-dim hover:text-cloud hover:bg-white/5",
               )}
               style={active ? { background: accent } : undefined}
+              disabled={disabled}
             >
               {opt.icon}
               <span>{opt.label}</span>
@@ -244,10 +303,12 @@ function RainIntensityGroup({
   value,
   onChange,
   accent,
+  disabled = false,
 }: {
   value: RainIntensity;
   onChange: (v: RainIntensity) => void;
   accent: string;
+  disabled?: boolean;
 }) {
   const options: { value: RainIntensity; label: string }[] = [
     { value: "light", label: "小雨" },
@@ -257,7 +318,7 @@ function RainIntensityGroup({
   ];
 
   return (
-    <div className="space-y-2">
+    <div className={cn("space-y-2", disabled && "opacity-50 pointer-events-none")}>
       <div className="text-[12px] text-cloud-dim">雨量等级</div>
       <div className="grid grid-cols-4 gap-1">
         {options.map((opt) => {
@@ -271,6 +332,7 @@ function RainIntensityGroup({
                 active ? "text-white" : "text-cloud-dim hover:text-cloud hover:bg-white/5",
               )}
               style={active ? { background: accent } : undefined}
+              disabled={disabled}
             >
               {opt.label}
             </button>

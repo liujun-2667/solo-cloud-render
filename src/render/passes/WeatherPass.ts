@@ -6,7 +6,7 @@ import {
 } from "../GLContext";
 import type { FrameContext } from "../frameContext";
 import { LightningSystem } from "../LightningSystem";
-import { MAX_PARTICLES, MAX_RIPPLES, MAX_LIGHTNING_SEGMENTS } from "../constants";
+import { MAX_PARTICLES, MAX_RIPPLES, MAX_LIGHTNING_SEGMENTS, RAIN_CONFIG } from "../constants";
 import type { OrbitCamera } from "../Camera";
 import { degToRad } from "@/utils/math";
 import particlesVert from "../shaders/particles.vert?raw";
@@ -16,6 +16,7 @@ import ripplesFrag from "../shaders/ripples.frag?raw";
 import lightningVert from "../shaders/lightning.vert?raw";
 import lightningFrag from "../shaders/lightning.frag?raw";
 import lightningFlashFrag from "../shaders/lightning_flash.frag?raw";
+import type { WeatherType, RainIntensity } from "@/types";
 
 const PARTICLE_UNIFORMS = [
   "u_viewProj", "u_camPos", "u_camRight", "u_camUp",
@@ -23,6 +24,7 @@ const PARTICLE_UNIFORMS = [
   "u_windX", "u_windZ", "u_windInfluence",
   "u_particleType", "u_fallSpeed", "u_particleLength",
   "u_spawnRate", "u_spawnAreaRadius", "u_groundY",
+  "u_alphaMultiplier",
 ];
 
 const RIPPLE_UNIFORMS = [
@@ -36,6 +38,14 @@ const LIGHTNING_UNIFORMS = [
 const FLASH_UNIFORMS = [
   "u_sceneTex", "u_resolution", "u_flashIntensity",
 ];
+
+interface WeatherState {
+  type: WeatherType;
+  rainIntensity: RainIntensity;
+  densityMultiplier: number;
+  windInfluence: number;
+  spawnFactor: number;
+}
 
 export class WeatherPass {
   private gl: WebGL2RenderingContext;
@@ -66,14 +76,20 @@ export class WeatherPass {
   private spawnAreaRadius = 3000;
   private groundY = 0;
 
-  private transitionFactor = 1.0;
-  private targetWeather: string = "clear";
-  private currentWeather: string = "clear";
+  private currentWeather: WeatherState;
+  private prevWeather: WeatherState | null = null;
   private transitionStart = 0;
-  private transitionDuration = 2.0;
+  private transitionDuration = 3.0;
+  private isTransitioning = false;
 
   private accumulatedSnow = 0;
   private snowDecayRate = 0.05;
+
+  private baseCoverage = 0.45;
+  private baseWindSpeed = 0.6;
+  private weatherCoverageOffset = 0;
+  private weatherWindMultiplier = 1;
+  private coverageTransitionSpeed = 0.3;
 
   constructor(gl: WebGL2RenderingContext, vao: WebGLVertexArrayObject) {
     this.gl = gl;
@@ -95,6 +111,14 @@ export class WeatherPass {
     this.lightningSystem = new LightningSystem();
 
     this.rippleData = new Float32Array(MAX_RIPPLES * 4);
+
+    this.currentWeather = {
+      type: "clear",
+      rainIntensity: "moderate",
+      densityMultiplier: 1.0,
+      windInfluence: 1.0,
+      spawnFactor: 0,
+    };
   }
 
   private createParticleBuffers(): WebGLVertexArrayObject {
@@ -222,25 +246,133 @@ export class WeatherPass {
     this.rippleCount = Math.min(this.rippleCount + 1, MAX_RIPPLES);
   }
 
-  updateWeatherTransition(ctx: FrameContext, time: number): void {
-    if (this.targetWeather !== ctx.weatherType) {
-      this.targetWeather = ctx.weatherType;
-      this.transitionStart = time;
+  setTransitionDuration(duration: number): void {
+    this.transitionDuration = Math.max(0.5, Math.min(10, duration));
+  }
+
+  getTransitionDuration(): number {
+    return this.transitionDuration;
+  }
+
+  setWeatherState(
+    type: WeatherType,
+    rainIntensity: RainIntensity,
+    densityMultiplier: number,
+    windInfluence: number,
+    time: number,
+  ): void {
+    if (this.currentWeather.type === type &&
+        this.currentWeather.rainIntensity === rainIntensity &&
+        this.currentWeather.densityMultiplier === densityMultiplier &&
+        this.currentWeather.windInfluence === windInfluence &&
+        !this.isTransitioning) {
+      return;
+    }
+
+    if (this.isTransitioning && this.prevWeather) {
+      this.prevWeather = { ...this.currentWeather, spawnFactor: this.currentWeather.spawnFactor };
+    } else {
+      this.prevWeather = { ...this.currentWeather, spawnFactor: 1.0 };
+    }
+
+    this.currentWeather = {
+      type,
+      rainIntensity,
+      densityMultiplier,
+      windInfluence,
+      spawnFactor: 0,
+    };
+
+    this.transitionStart = time;
+    this.isTransitioning = true;
+  }
+
+  private updateTransition(time: number, dt: number): void {
+    if (!this.isTransitioning) {
+      this.currentWeather.spawnFactor = 1.0;
+      return;
     }
 
     const elapsed = time - this.transitionStart;
-    if (elapsed < this.transitionDuration) {
-      this.transitionFactor = 1.0 - elapsed / this.transitionDuration;
-    } else {
-      this.transitionFactor = 0;
-      this.currentWeather = this.targetWeather;
+    const t = Math.min(1, elapsed / this.transitionDuration);
+    const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+    this.currentWeather.spawnFactor = eased;
+    if (this.prevWeather) {
+      this.prevWeather.spawnFactor = 1.0 - eased;
     }
 
-    if (ctx.weatherType === "snow") {
-      this.accumulatedSnow = Math.min(1, this.accumulatedSnow + 0.0005);
-    } else {
-      this.accumulatedSnow = Math.max(0, this.accumulatedSnow - this.snowDecayRate * 0.001);
+    if (t >= 1.0) {
+      this.isTransitioning = false;
+      this.prevWeather = null;
+      this.currentWeather.spawnFactor = 1.0;
     }
+  }
+
+  private updateWeatherCloudEffects(ctx: FrameContext, dt: number): void {
+    const targetType = this.currentWeather.type;
+    const targetIntensity = this.currentWeather.rainIntensity;
+
+    let targetCoverageOffset = 0;
+    let targetWindMultiplier = 1;
+
+    if (targetType === "rain") {
+      if (targetIntensity === "storm") {
+        targetCoverageOffset = Math.max(0, 0.9 - this.baseCoverage);
+        targetWindMultiplier = 1.5;
+      } else if (targetIntensity === "heavy") {
+        targetCoverageOffset = Math.max(0, 0.8 - this.baseCoverage);
+        targetWindMultiplier = 1.3;
+      } else {
+        targetCoverageOffset = Math.max(0, 0.7 - this.baseCoverage);
+        targetWindMultiplier = 1.2;
+      }
+    } else if (targetType === "snow") {
+      const midCoverage = 0.6;
+      targetCoverageOffset = midCoverage - this.baseCoverage;
+      targetWindMultiplier = 0.8;
+    } else {
+      targetCoverageOffset = 0;
+      targetWindMultiplier = 1;
+    }
+
+    const transitionAmount = this.coverageTransitionSpeed * dt;
+    if (this.weatherCoverageOffset < targetCoverageOffset) {
+      this.weatherCoverageOffset = Math.min(targetCoverageOffset, this.weatherCoverageOffset + transitionAmount);
+    } else {
+      this.weatherCoverageOffset = Math.max(targetCoverageOffset, this.weatherCoverageOffset - transitionAmount);
+    }
+
+    if (this.weatherWindMultiplier < targetWindMultiplier) {
+      this.weatherWindMultiplier = Math.min(targetWindMultiplier, this.weatherWindMultiplier + transitionAmount * 0.5);
+    } else {
+      this.weatherWindMultiplier = Math.max(targetWindMultiplier, this.weatherWindMultiplier - transitionAmount * 0.5);
+    }
+  }
+
+  setBaseParams(baseCoverage: number, baseWindSpeed: number): void {
+    this.baseCoverage = baseCoverage;
+    this.baseWindSpeed = baseWindSpeed;
+  }
+
+  getWeatherCoverageOffset(): number {
+    return this.weatherCoverageOffset;
+  }
+
+  getWeatherWindMultiplier(): number {
+    return this.weatherWindMultiplier;
+  }
+
+  private getParticleCount(weather: WeatherState, ctx: FrameContext): number {
+    if (weather.type === "clear" || weather.spawnFactor <= 0) return 0;
+
+    const rainCfg = RAIN_CONFIG[weather.rainIntensity] ?? RAIN_CONFIG.moderate;
+    const baseDensity = weather.type === "rain" ? rainCfg.density : 0.5;
+    const density = baseDensity * weather.densityMultiplier * ctx.particleDensityMultiplier * Math.max(0.3, ctx.coverage);
+    const maxCount = weather.type === "rain" ? MAX_PARTICLES : Math.floor(MAX_PARTICLES * 0.6);
+    const count = Math.floor(maxCount * Math.min(1, density * weather.spawnFactor));
+
+    return Math.max(0, count);
   }
 
   render(
@@ -256,12 +388,13 @@ export class WeatherPass {
     const dt = this.prevTime > 0 ? Math.min(0.05, time - this.prevTime) : 0.016;
     this.prevTime = time;
 
-    this.updateWeatherTransition(ctx, time);
+    this.updateTransition(time, dt);
+    this.updateWeatherCloudEffects(ctx, dt);
 
-    const isStorm = ctx.rainIntensity === "storm";
+    const isStorm = this.currentWeather.type === "rain" && this.currentWeather.rainIntensity === "storm";
     this.lightningSystem.update(
       time,
-      ctx.coverage,
+      ctx.coverage + this.weatherCoverageOffset,
       isStorm,
       ctx.lightningEnabled,
       ctx.cloudBase,
@@ -283,27 +416,27 @@ export class WeatherPass {
     const camPos = camera.position;
     const basis = camera.basis();
 
-    let activeParticles = 0;
-    let particleType = 0;
-
-    if (ctx.weatherType === "rain" || (this.transitionFactor > 0 && this.currentWeather === "rain")) {
-      const density = ctx.rainDensityFactor * ctx.particleDensityMultiplier * Math.max(0.3, ctx.coverage);
-      const spawnFade = ctx.weatherType === "rain" ? 1.0 : this.transitionFactor;
-      activeParticles = Math.floor(MAX_PARTICLES * Math.min(1, density * spawnFade));
-      particleType = 0;
-    } else if (ctx.weatherType === "snow" || (this.transitionFactor > 0 && this.currentWeather === "snow")) {
-      const density = 0.5 * ctx.particleDensityMultiplier * Math.max(0.3, ctx.coverage);
-      const spawnFade = ctx.weatherType === "snow" ? 1.0 : this.transitionFactor;
-      activeParticles = Math.floor(MAX_PARTICLES * 0.6 * Math.min(1, density * spawnFade));
-      particleType = 1;
+    if (this.prevWeather && this.prevWeather.spawnFactor > 0 && this.prevWeather.type !== "clear") {
+      const count = this.getParticleCount(this.prevWeather, ctx);
+      if (count > 0) {
+        this.renderWeatherParticles(ctx, viewProj, camPos, basis, time, dt, count, this.prevWeather);
+      }
     }
 
-    if (activeParticles > 0) {
-      this.renderParticles(ctx, viewProj, camPos, basis, time, dt, activeParticles, particleType);
+    if (this.currentWeather.spawnFactor > 0 && this.currentWeather.type !== "clear") {
+      const count = this.getParticleCount(this.currentWeather, ctx);
+      if (count > 0) {
+        this.renderWeatherParticles(ctx, viewProj, camPos, basis, time, dt, count, this.currentWeather);
+      }
     }
 
-    if (particleType === 0 && activeParticles > 0) {
-      this.updateRipples(ctx, camPos, time);
+    const hasRain = this.currentWeather.type === "rain" || (this.prevWeather?.type === "rain" && this.prevWeather.spawnFactor > 0);
+    const rainFactor = Math.max(
+      this.currentWeather.type === "rain" ? this.currentWeather.spawnFactor : 0,
+      this.prevWeather?.type === "rain" ? this.prevWeather.spawnFactor : 0,
+    );
+    if (hasRain && rainFactor > 0) {
+      this.updateRipples(ctx, camPos, time, rainFactor);
       this.renderRipples(viewProj, basis, camPos, time);
     }
 
@@ -314,8 +447,14 @@ export class WeatherPass {
 
     gl.disable(gl.BLEND);
 
+    if (this.currentWeather.type === "snow") {
+      this.accumulatedSnow = Math.min(1, this.accumulatedSnow + 0.0005 * this.currentWeather.spawnFactor);
+    } else {
+      this.accumulatedSnow = Math.max(0, this.accumulatedSnow - this.snowDecayRate * 0.001);
+    }
+
     let finalSnowAccum = ctx.snowAccumulation;
-    if (ctx.weatherType === "snow") {
+    if (this.currentWeather.type === "snow" || (this.prevWeather?.type === "snow" && this.prevWeather.spawnFactor > 0.1)) {
       finalSnowAccum = Math.min(1, finalSnowAccum + this.accumulatedSnow * 0.3);
     }
 
@@ -326,7 +465,7 @@ export class WeatherPass {
     };
   }
 
-  private renderParticles(
+  private renderWeatherParticles(
     ctx: FrameContext,
     viewProj: Float32Array,
     camPos: number[],
@@ -334,10 +473,15 @@ export class WeatherPass {
     time: number,
     dt: number,
     count: number,
-    type: number,
+    weather: WeatherState,
   ): void {
     const gl = this.gl;
     const u = this.particleProgram.uniforms;
+    const rainCfg = RAIN_CONFIG[weather.rainIntensity] ?? RAIN_CONFIG.moderate;
+
+    const particleType = weather.type === "rain" ? 0 : 1;
+    const fallSpeed = weather.type === "rain" ? rainCfg.fallSpeed : rainCfg.fallSpeed * 0.4;
+    const particleLength = weather.type === "rain" ? rainCfg.length : 4;
 
     gl.useProgram(this.particleProgram.program);
     gl.bindVertexArray(this.particleVAO);
@@ -353,10 +497,10 @@ export class WeatherPass {
     gl.uniform1f(u.u_cloudThickness, ctx.cloudThickness);
     gl.uniform1f(u.u_windX, ctx.windVec[0]);
     gl.uniform1f(u.u_windZ, ctx.windVec[2]);
-    gl.uniform1f(u.u_windInfluence, ctx.windParticleInfluence);
-    gl.uniform1i(u.u_particleType, type);
-    gl.uniform1f(u.u_fallSpeed, ctx.rainFallSpeed);
-    gl.uniform1f(u.u_particleLength, type === 0 ? ctx.rainParticleLength : 4);
+    gl.uniform1f(u.u_windInfluence, weather.windInfluence * ctx.windParticleInfluence);
+    gl.uniform1i(u.u_particleType, particleType);
+    gl.uniform1f(u.u_fallSpeed, fallSpeed);
+    gl.uniform1f(u.u_particleLength, particleLength);
     gl.uniform1f(u.u_spawnRate, count / 5.0);
     gl.uniform1f(u.u_spawnAreaRadius, this.spawnAreaRadius);
     gl.uniform1f(u.u_groundY, this.groundY);
@@ -365,8 +509,10 @@ export class WeatherPass {
     gl.bindVertexArray(null);
   }
 
-  private updateRipples(ctx: FrameContext, camPos: number[], time: number): void {
-    const ripplesPerFrame = Math.floor(ctx.rainDensityFactor * 15 * ctx.particleDensityMultiplier);
+  private updateRipples(ctx: FrameContext, camPos: number[], time: number, intensityFactor: number): void {
+    const rainCfg = RAIN_CONFIG[this.currentWeather.rainIntensity] ?? RAIN_CONFIG.moderate;
+    const baseRipples = Math.floor(rainCfg.density * 15 * ctx.particleDensityMultiplier);
+    const ripplesPerFrame = Math.floor(baseRipples * intensityFactor);
     const radius = this.spawnAreaRadius * 0.7;
 
     for (let i = 0; i < ripplesPerFrame; i++) {

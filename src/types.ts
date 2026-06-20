@@ -3,6 +3,15 @@ export type Vec3 = [number, number, number];
 export type WeatherType = "clear" | "rain" | "snow";
 export type RainIntensity = "light" | "moderate" | "heavy" | "storm";
 
+export interface WeatherKeyframe {
+  id: string;
+  time: number;
+  weatherType: WeatherType;
+  rainIntensity: RainIntensity;
+  particleDensityMultiplier: number;
+  windParticleInfluence: number;
+}
+
 export interface RenderParams {
   sunAzimuth: number;
   sunElevation: number;
