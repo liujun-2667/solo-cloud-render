@@ -132,24 +132,29 @@ export function useRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>
       if (paramState.isTransitioning) paramState.tickTransition(dt);
       if (cameraState.isTransitioning) cameraState.tickTransition(dt);
 
-      timelineState.tick(dt, paramState.params);
+      const tickResult = timelineState.tick(dt, paramState.params);
 
+      const currentTimelineState = useTimelineStore.getState();
+      const currentTimelineTime = currentTimelineState.currentTime;
       const prevTimelineTime = lastTimelineTimeRef.current;
-      const timeChanged = Math.abs(timelineState.currentTime - prevTimelineTime) > 0.001 || prevTimelineTime < 0;
-      const hasKeyframes = timelineState.keyframes.length > 0;
-      const shouldInterpolate = timelineState.useWeatherPreset || hasKeyframes || timelineState.useWeatherKeyframes;
+      const timeChanged = Math.abs(currentTimelineTime - prevTimelineTime) > 0.001 || prevTimelineTime < 0;
+      const hasKeyframes = currentTimelineState.keyframes.length > 0;
+      const shouldInterpolate = currentTimelineState.useWeatherPreset || hasKeyframes || currentTimelineState.useWeatherKeyframes;
 
       let renderParams = paramState.params;
 
-      if (timeChanged && shouldInterpolate) {
-        const baseForInterp = hasKeyframes ? paramState.params : paramState.params;
-        const interpolated = timelineState.getInterpolatedParams(timelineState.currentTime, baseForInterp);
+      if (tickResult !== null && shouldInterpolate) {
+        paramState.setParams(tickResult);
+        renderParams = tickResult;
+        lastTimelineTimeRef.current = currentTimelineTime;
+      } else if (timeChanged && shouldInterpolate) {
+        const interpolated = currentTimelineState.getInterpolatedParams(currentTimelineTime, paramState.params);
         paramState.setParams(interpolated);
         renderParams = interpolated;
-        lastTimelineTimeRef.current = timelineState.currentTime;
+        lastTimelineTimeRef.current = currentTimelineTime;
       }
 
-      renderParams = applyWeatherOffset(renderParams, timelineState.currentTime);
+      renderParams = applyWeatherOffset(renderParams, currentTimelineTime);
 
       updateWeatherPass(renderParams, now);
 
