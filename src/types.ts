@@ -1,5 +1,8 @@
 export type Vec3 = [number, number, number];
 
+export type WeatherType = "clear" | "rain" | "snow";
+export type RainIntensity = "light" | "moderate" | "heavy" | "storm";
+
 export interface RenderParams {
   sunAzimuth: number;
   sunElevation: number;
@@ -27,6 +30,13 @@ export interface RenderParams {
 
   visibility: number;
   cloudShadowStrength: number;
+
+  weatherType: WeatherType;
+  rainIntensity: RainIntensity;
+  particleDensityMultiplier: number;
+  windParticleInfluence: number;
+  snowAccumulation: number;
+  lightningEnabled: boolean;
 }
 
 export interface CameraState {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RenderParams, Keyframe } from "@/types";
+import type { RenderParams, Keyframe, WeatherType, RainIntensity } from "@/types";
 import { DEFAULT_RENDER_PARAMS } from "@/render/constants";
 import { lerpParams } from "./renderParams";
 import { useParamsStore } from "./renderParams";
@@ -15,6 +15,93 @@ function generateId(): string {
 function smoothStep(edge0: number, edge1: number, x: number): number {
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
+}
+
+function getPrecipitationParams(timeHours: number): {
+  weatherType: WeatherType;
+  rainIntensity: RainIntensity;
+  coverage: number;
+  windBoost: number;
+} {
+  const t = timeHours;
+
+  if (t < 5.0) {
+    return { weatherType: "clear", rainIntensity: "moderate", coverage: 0.1, windBoost: 0 };
+  } else if (t < 6.5) {
+    const p = (t - 5.0) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: "light",
+      coverage: 0.5 + eased * 0.2,
+      windBoost: eased * 0.1,
+    };
+  } else if (t < 8.0) {
+    const p = (t - 6.5) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: eased < 0.5 ? "light" : "moderate",
+      coverage: 0.7 + eased * 0.15,
+      windBoost: 0.1 + eased * 0.15,
+    };
+  } else if (t < 10.0) {
+    const p = (t - 8.0) / 2.0;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: eased < 0.5 ? "moderate" : "heavy",
+      coverage: 0.85,
+      windBoost: 0.25 + eased * 0.15,
+    };
+  } else if (t < 12.0) {
+    const p = (t - 10.0) / 2.0;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: "storm",
+      coverage: 0.9,
+      windBoost: 0.4 + eased * 0.1,
+    };
+  } else if (t < 13.5) {
+    const p = (t - 12.0) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: eased < 0.5 ? "storm" : "heavy",
+      coverage: 0.9 - eased * 0.15,
+      windBoost: 0.5 - eased * 0.2,
+    };
+  } else if (t < 15.0) {
+    const p = (t - 13.5) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "rain",
+      rainIntensity: eased < 0.5 ? "heavy" : "light",
+      coverage: 0.75 - eased * 0.35,
+      windBoost: 0.3 - eased * 0.2,
+    };
+  } else if (t < 16.5) {
+    const p = (t - 15.0) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "snow",
+      rainIntensity: "moderate",
+      coverage: 0.5 + eased * 0.1,
+      windBoost: 0.15 + eased * 0.1,
+    };
+  } else if (t < 18.0) {
+    const p = (t - 16.5) / 1.5;
+    const eased = smoothStep(0, 1, p);
+    return {
+      weatherType: "snow",
+      rainIntensity: "moderate",
+      coverage: 0.6 - eased * 0.2,
+      windBoost: 0.25 - eased * 0.15,
+    };
+  } else {
+    return { weatherType: "clear", rainIntensity: "moderate", coverage: 0.1, windBoost: 0 };
+  }
 }
 
 function getDefaultWeatherParams(timeHours: number): Partial<RenderParams> {
@@ -50,24 +137,7 @@ function getDefaultWeatherParams(timeHours: number): Partial<RenderParams> {
     sunAzimuth = 315;
   }
 
-  let coverage: number;
-  if (t < 6) {
-    coverage = 0.1;
-  } else if (t < 9) {
-    const morningT = (t - 6) / 3;
-    const eased = smoothStep(0, 1, morningT);
-    coverage = 0.6 - eased * 0.45;
-  } else if (t < 14) {
-    const midT = (t - 9) / 5;
-    const eased = smoothStep(0, 1, midT);
-    coverage = 0.15 + eased * 0.4;
-  } else if (t < 18) {
-    const eveningT = (t - 14) / 4;
-    const eased = smoothStep(0, 1, eveningT);
-    coverage = 0.55 - eased * 0.4;
-  } else {
-    coverage = 0.1;
-  }
+  const precip = getPrecipitationParams(t);
 
   let windSpeed: number;
   if (t < 6) {
@@ -83,6 +153,7 @@ function getDefaultWeatherParams(timeHours: number): Partial<RenderParams> {
   } else {
     windSpeed = 0.2;
   }
+  windSpeed = clamp(windSpeed + precip.windBoost, 0, 3);
 
   let sunIntensity: number;
   if (sunElevation <= 0) {
@@ -93,13 +164,18 @@ function getDefaultWeatherParams(timeHours: number): Partial<RenderParams> {
   } else {
     sunIntensity = Math.max(12, Math.sin((sunElevation / 90) * Math.PI * 0.5) * 28);
   }
+  sunIntensity *= 1.0 - precip.coverage * 0.5;
 
   return {
     sunAzimuth: clamp(sunAzimuth, 0, 360),
     sunElevation: clamp(sunElevation, -10, 90),
     sunIntensity,
-    coverage: clamp(coverage, 0, 1),
+    coverage: clamp(precip.coverage, 0, 1),
     windSpeed: clamp(windSpeed, 0, 3),
+    weatherType: precip.weatherType,
+    rainIntensity: precip.rainIntensity,
+    lightningEnabled: true,
+    snowAccumulation: precip.weatherType === "snow" ? 0.5 : 0,
   };
 }
 

@@ -14,6 +14,7 @@ import { AtmospherePass } from "./passes/AtmospherePass";
 import { CloudPass } from "./passes/CloudPass";
 import { CompositePass } from "./passes/CompositePass";
 import { PresentPass } from "./passes/PresentPass";
+import { WeatherPass } from "./passes/WeatherPass";
 
 interface RenderTargets {
   cloudTex: WebGLTexture;
@@ -22,6 +23,8 @@ interface RenderTargets {
   cloudHistoryFB: WebGLFramebuffer;
   atmosphereTex: WebGLTexture;
   atmosphereFB: WebGLFramebuffer;
+  weatherTex: WebGLTexture;
+  weatherFB: WebGLFramebuffer;
   historyA: WebGLTexture;
   historyB: WebGLTexture;
   historyAFB: WebGLFramebuffer;
@@ -46,6 +49,7 @@ export class Renderer {
   private cloudPass: CloudPass;
   private compositePass: CompositePass;
   private presentPass: PresentPass;
+  private weatherPass: WeatherPass;
   private targets: RenderTargets | null = null;
 
   private frameIndex = 0;
@@ -56,6 +60,7 @@ export class Renderer {
   private hasValidClouds = false;
   private firstFrame = true;
   private lastCloudMs = 0;
+  private lastWeatherMs = 0;
 
   onStats: ((stats: RenderStats) => void) | null = null;
 
@@ -78,6 +83,7 @@ export class Renderer {
     this.cloudPass = new CloudPass(this.gl, this.vao);
     this.compositePass = new CompositePass(this.gl, this.vao);
     this.presentPass = new PresentPass(this.gl, this.vao);
+    this.weatherPass = new WeatherPass(this.gl, this.vao);
   }
 
   resize(displayWidth: number, displayHeight: number, resolutionScale: number): void {
@@ -124,6 +130,14 @@ export class Renderer {
     attachTextureToFramebuffer(gl, atmosphereFB, atmosphereTex);
     checkFramebuffer(gl, "atmosphere");
 
+    const weatherTex = createFloatTexture(gl, {
+      width: w, height: h,
+      internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT,
+    });
+    const weatherFB = createFramebuffer(gl);
+    attachTextureToFramebuffer(gl, weatherFB, weatherTex);
+    checkFramebuffer(gl, "weather");
+
     const historyA = createFloatTexture(gl, {
       width: w, height: h,
       internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE,
@@ -142,6 +156,7 @@ export class Renderer {
     this.targets = {
       cloudTex, cloudFB, cloudHistoryTex, cloudHistoryFB,
       atmosphereTex, atmosphereFB,
+      weatherTex, weatherFB,
       historyA, historyB, historyAFB, historyBFB,
       width: w, height: h, cloudWidth: cw, cloudHeight: ch,
     };
@@ -188,15 +203,10 @@ export class Renderer {
     const jitter = this.computeJitter(t.width, t.height);
 
     // Pass 1: volumetric clouds at reduced resolution with checkerboard temporal reuse.
-    // - When camera is moving or just settled (<= 2 static frames): full render every frame.
-    // - When camera is static for > 2 frames: render 1/16 pixels per frame in a
-    //   4x4 checkerboard pattern, reusing the other 15/16 from the history buffer.
-    //   This gives ~16x speedup for cloud rendering when the view is static.
     const useCheckerboard = this.staticFrames > 2 && this.hasValidClouds;
     let cloudMs = this.lastCloudMs;
 
     if (!useCheckerboard) {
-      // Full render: clear and render all pixels.
       const s0 = performance.now();
       gl.bindFramebuffer(gl.FRAMEBUFFER, t.cloudHistoryFB);
       gl.viewport(0, 0, t.cloudWidth, t.cloudHeight);
@@ -208,14 +218,11 @@ export class Renderer {
       this.lastCloudMs = cloudMs;
       this.hasValidClouds = true;
     } else {
-      // Checkerboard update: render only 1/16 of pixels, preserve the rest.
       const checkerIndex = this.checkerFrame % 16;
       const s0 = performance.now();
-      // Don't clear - we want to keep existing pixels from previous frames.
       this.cloudPass.render(ctx, this.noiseTex, t.cloudHistoryFB, t.cloudWidth, t.cloudHeight, jitter, checkerIndex);
       gl.flush();
       const actualMs = performance.now() - s0;
-      // Estimate full-frame equivalent time for stats (16x since only 1/16 work done).
       cloudMs = actualMs * 16;
       this.lastCloudMs = cloudMs;
     }
@@ -227,34 +234,56 @@ export class Renderer {
     gl.flush();
     const atmosphereMs = performance.now() - a0;
 
-    // Pass 3: composite + TAA. Ping-pong between history textures.
+    // Pass 3: weather particles (rain/snow/lightning) rendered separately before composite.
+    const w0 = performance.now();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.weatherFB);
+    gl.viewport(0, 0, t.width, t.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    const weatherResult = this.weatherPass.render(
+      ctx, cam, t.weatherFB, t.width, t.height, t.historyA,
+    );
+    gl.flush();
+    const weatherMs = performance.now() - w0;
+    this.lastWeatherMs = weatherMs;
+
+    const hasWeather = ctx.weatherType !== "clear";
+    const finalSnowAccum = weatherResult.snowAccumulation;
+
+    // Pass 4: composite + TAA (blends weather particles and applies snow accumulation).
     const readHistory = this.historyIndex === 0 ? t.historyA : t.historyB;
     const writeHistory = this.historyIndex === 0 ? t.historyB : t.historyA;
     const writeFB = this.historyIndex === 0 ? t.historyBFB : t.historyAFB;
-    // Higher blend when moving (responsive), lower when static (accumulate/denoise).
-    // On the first frame after a resize there is no valid history, so take current fully.
     const blendFactor = this.firstFrame ? 1.0 : moved ? 0.5 : this.staticFrames > 6 ? 0.1 : 0.25;
 
     const c0 = performance.now();
     this.compositePass.render(
-      ctx, t.cloudHistoryTex, t.atmosphereTex, readHistory, writeFB,
-      t.width, t.height, jitter, blendFactor,
+      ctx, t.cloudHistoryTex, t.atmosphereTex, readHistory, t.weatherTex, writeFB,
+      t.width, t.height, jitter, blendFactor, finalSnowAccum, hasWeather,
     );
     gl.flush();
     const compositeMs = performance.now() - c0;
     this.historyIndex = 1 - this.historyIndex;
     this.firstFrame = false;
 
-    // Pass 4: present to the default framebuffer with vignette.
+    // Pass 5: present to the default framebuffer with vignette.
+    // If lightning flash, apply it as a fullscreen brighten effect.
     const p0 = performance.now();
-    this.presentPass.render(writeHistory, this.canvas.width, this.canvas.height, 0.4);
+    if (weatherResult.hasFlash && weatherResult.flashIntensity > 0.01) {
+      this.weatherPass.renderFlash(
+        null, t.width, t.height, writeHistory, weatherResult.flashIntensity,
+      );
+    } else {
+      this.presentPass.render(writeHistory, this.canvas.width, this.canvas.height, 0.4);
+    }
     const presentMs = performance.now() - p0;
 
     this.frameIndex++;
     if (this.onStats) {
       this.onStats({
         fps: 0,
-        frameMs: cloudMs + atmosphereMs + compositeMs + presentMs,
+        frameMs: cloudMs + atmosphereMs + weatherMs + compositeMs + presentMs,
         cloudMs,
         atmosphereMs,
         compositeMs: compositeMs + presentMs,
@@ -345,8 +374,8 @@ export class Renderer {
       this.atmospherePass.render(ctx, this.noiseTex, atmosphereFB, targetWidth, targetHeight, jitter);
       // Accumulate as an EMA with blend = 1/samples for an approximate average.
       this.compositePass.render(
-        ctx, cloudTex, atmosphereTex, readAccum, writeFB,
-        targetWidth, targetHeight, jitter, 1 / samples,
+        ctx, cloudTex, atmosphereTex, readAccum, null, writeFB,
+        targetWidth, targetHeight, jitter, 1 / samples, 0, false,
       );
       // Ping-pong.
       const tmp = readAccum;
@@ -392,6 +421,7 @@ export class Renderer {
     this.disposeTargets();
     gl.deleteTexture(this.noiseTex);
     this.noiseGen.dispose();
+    this.weatherPass.dispose();
   }
 
   private disposeTargets(): void {
@@ -404,6 +434,8 @@ export class Renderer {
     gl.deleteFramebuffer(t.cloudHistoryFB);
     gl.deleteTexture(t.atmosphereTex);
     gl.deleteFramebuffer(t.atmosphereFB);
+    gl.deleteTexture(t.weatherTex);
+    gl.deleteFramebuffer(t.weatherFB);
     gl.deleteTexture(t.historyA);
     gl.deleteTexture(t.historyB);
     gl.deleteFramebuffer(t.historyAFB);

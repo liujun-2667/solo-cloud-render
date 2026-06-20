@@ -48,6 +48,12 @@ export function lerpParams(a: RenderParams, b: RenderParams, t: number): RenderP
     resolutionScale: lerp(a.resolutionScale, b.resolutionScale, t),
     visibility: lerp(a.visibility, b.visibility, t),
     cloudShadowStrength: lerp(a.cloudShadowStrength, b.cloudShadowStrength, t),
+    weatherType: t > 0.5 ? b.weatherType : a.weatherType,
+    rainIntensity: t > 0.5 ? b.rainIntensity : a.rainIntensity,
+    particleDensityMultiplier: lerp(a.particleDensityMultiplier, b.particleDensityMultiplier, t),
+    windParticleInfluence: lerp(a.windParticleInfluence, b.windParticleInfluence, t),
+    snowAccumulation: lerp(a.snowAccumulation, b.snowAccumulation, t),
+    lightningEnabled: t > 0.5 ? b.lightningEnabled : a.lightningEnabled,
   };
 }
 

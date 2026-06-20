@@ -6,12 +6,15 @@ out vec4 outColor;
 uniform sampler2D u_cloudTex;
 uniform sampler2D u_atmosphereTex;
 uniform sampler2D u_historyTex;
+uniform sampler2D u_weatherTex;
 
 uniform vec2 u_resolution;
 uniform vec2 u_jitter;
 uniform float u_blendFactor;
 uniform float u_exposure;
 uniform float u_starIntensity;
+uniform float u_snowAccumulation;
+uniform float u_hasWeather;
 
 uniform vec3 u_camForward;
 uniform vec3 u_camRight;
@@ -77,6 +80,15 @@ void main() {
   // Front-to-back composite: cloud.rgb is accumulated luminance, cloud.a is transmittance.
   vec3 color = cloud.rgb + sky * cloud.a;
 
+  // Snow accumulation on ground/lower parts of view.
+  if (u_snowAccumulation > 0.001) {
+    vec3 rd = viewRay(uv);
+    float horizonFactor = smoothstep(-0.1, 0.3, -rd.y);
+    float snowMix = u_snowAccumulation * horizonFactor * 0.6;
+    vec3 snowColor = vec3(0.95, 0.97, 1.0);
+    color = mix(color, snowColor, snowMix);
+  }
+
   // Stars (visible when the sky is dark, scaled by u_starIntensity).
   if (u_starIntensity > 0.001) {
     vec3 rd = viewRay(uv);
@@ -90,6 +102,12 @@ void main() {
   color *= u_exposure;
   color = acesTonemap(color);
   color = pow(color, vec3(1.0 / 2.2));
+
+  // Blend weather particles (rain/snow/lightning) on top.
+  if (u_hasWeather > 0.5) {
+    vec4 weather = texture(u_weatherTex, uv);
+    color = color * (1.0 - weather.a) + weather.rgb * weather.a;
+  }
 
   // Temporal accumulation in LDR space.
   vec2 historyUv = clamp(uv + u_jitter, vec2(0.0), vec2(1.0));

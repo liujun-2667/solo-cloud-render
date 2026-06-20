@@ -40,6 +40,13 @@ export const DEFAULT_RENDER_PARAMS: RenderParams = {
 
   visibility: 30000,
   cloudShadowStrength: 0.6,
+
+  weatherType: "clear",
+  rainIntensity: "moderate",
+  particleDensityMultiplier: 1.0,
+  windParticleInfluence: 1.0,
+  snowAccumulation: 0.0,
+  lightningEnabled: true,
 };
 
 export const DEFAULT_CAMERA: CameraState = {
@@ -47,6 +54,17 @@ export const DEFAULT_CAMERA: CameraState = {
   elevation: 8,
   fov: 55,
   distance: 1.0,
+};
+
+export const MAX_PARTICLES = 100000;
+export const MAX_RIPPLES = 2000;
+export const MAX_LIGHTNING_SEGMENTS = 256;
+
+export const RAIN_CONFIG: Record<string, { density: number; fallSpeed: number; length: number }> = {
+  light: { density: 0.15, fallSpeed: 8.0, length: 15.0 },
+  moderate: { density: 0.4, fallSpeed: 12.0, length: 25.0 },
+  heavy: { density: 0.7, fallSpeed: 16.0, length: 35.0 },
+  storm: { density: 1.0, fallSpeed: 22.0, length: 50.0 },
 };
 
 export const PARAM_META: Record<
@@ -73,4 +91,7 @@ export const PARAM_META: Record<
   resolutionScale: { min: 0.25, max: 1, step: 0.05, unit: "" },
   visibility: { min: 1000, max: 100000, step: 500, unit: "m" },
   cloudShadowStrength: { min: 0, max: 1, step: 0.01, unit: "" },
+  particleDensityMultiplier: { min: 0.1, max: 3.0, step: 0.05, unit: "x" },
+  windParticleInfluence: { min: 0, max: 2.0, step: 0.05, unit: "" },
+  snowAccumulation: { min: 0, max: 1, step: 0.01, unit: "" },
 };

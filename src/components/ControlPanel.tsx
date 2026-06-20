@@ -1,10 +1,11 @@
-import { Sun, Wind, Cloud, Gauge, RotateCcw } from "lucide-react";
+import { Sun, Wind, Cloud, Gauge, RotateCcw, CloudRain, Snowflake, CloudLightning } from "lucide-react";
 import { useParamsStore } from "@/store/renderParams";
 import { usePresetStore } from "@/store/preset";
 import { DEFAULT_RENDER_PARAMS } from "@/render/constants";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ParamSlider } from "./ParamSlider";
 import { cn } from "@/lib/utils";
+import type { WeatherType, RainIntensity } from "@/types";
 
 export function ControlPanel({ accent }: { accent: string }) {
   const params = useParamsStore((s) => s.params);
@@ -67,6 +68,27 @@ export function ControlPanel({ accent }: { accent: string }) {
           <ParamSlider paramKey="detailStrength" label="细节强度" value={params.detailStrength} accent={accent} />
           <ParamSlider paramKey="windSpeed" label="风速" value={params.windSpeed} accent={accent} />
           <ParamSlider paramKey="windDirection" label="风向" value={params.windDirection} accent={accent} />
+        </CollapsibleSection>
+
+        {/* Weather Effects */}
+        <CollapsibleSection id="weather" title="天气效果" icon={<CloudRain size={14} />} accent={accent}>
+          <WeatherTypeGroup value={params.weatherType} onChange={(v) => setParams({ weatherType: v })} accent={accent} />
+          {params.weatherType === "rain" && (
+            <RainIntensityGroup value={params.rainIntensity} onChange={(v) => setParams({ rainIntensity: v })} accent={accent} />
+          )}
+          <ParamSlider paramKey="particleDensityMultiplier" label="粒子密度倍率" value={params.particleDensityMultiplier} accent={accent} />
+          <ParamSlider paramKey="windParticleInfluence" label="风对粒子影响系数" value={params.windParticleInfluence} accent={accent} />
+          {params.weatherType === "snow" && (
+            <ParamSlider paramKey="snowAccumulation" label="积雪量" value={params.snowAccumulation} accent={accent} />
+          )}
+          {params.weatherType === "rain" && params.rainIntensity === "storm" && (
+            <ToggleRow
+              label="闪电效果"
+              checked={params.lightningEnabled}
+              onChange={(v) => setParams({ lightningEnabled: v })}
+              accent={accent}
+            />
+          )}
         </CollapsibleSection>
 
         {/* Quality */}
@@ -173,6 +195,88 @@ function ToggleRow({
           className={cn("toggle-knob absolute top-0.5 h-4 w-4 rounded-full bg-white shadow", checked ? "left-[18px]" : "left-0.5")}
         />
       </button>
+    </div>
+  );
+}
+
+function WeatherTypeGroup({
+  value,
+  onChange,
+  accent,
+}: {
+  value: WeatherType;
+  onChange: (v: WeatherType) => void;
+  accent: string;
+}) {
+  const options: { value: WeatherType; label: string; icon: React.ReactNode }[] = [
+    { value: "clear", label: "晴", icon: <Sun size={12} /> },
+    { value: "rain", label: "雨", icon: <CloudRain size={12} /> },
+    { value: "snow", label: "雪", icon: <Snowflake size={12} /> },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[12px] text-cloud-dim">天气类型</div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                "flex items-center justify-center gap-1 rounded-md py-2 text-[11px] transition-all",
+                active ? "text-white" : "text-cloud-dim hover:text-cloud hover:bg-white/5",
+              )}
+              style={active ? { background: accent } : undefined}
+            >
+              {opt.icon}
+              <span>{opt.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RainIntensityGroup({
+  value,
+  onChange,
+  accent,
+}: {
+  value: RainIntensity;
+  onChange: (v: RainIntensity) => void;
+  accent: string;
+}) {
+  const options: { value: RainIntensity; label: string }[] = [
+    { value: "light", label: "小雨" },
+    { value: "moderate", label: "中雨" },
+    { value: "heavy", label: "大雨" },
+    { value: "storm", label: "暴雨" },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[12px] text-cloud-dim">雨量等级</div>
+      <div className="grid grid-cols-4 gap-1">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                "rounded-md py-1.5 text-[10px] transition-all",
+                active ? "text-white" : "text-cloud-dim hover:text-cloud hover:bg-white/5",
+              )}
+              style={active ? { background: accent } : undefined}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

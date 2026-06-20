@@ -1,6 +1,6 @@
-import type { RenderParams } from "@/types";
+import type { RenderParams, WeatherType, RainIntensity } from "@/types";
 import { OrbitCamera } from "./Camera";
-import { PLANET_RADIUS } from "./constants";
+import { PLANET_RADIUS, RAIN_CONFIG } from "./constants";
 import { sunColorByElevation, colorTempToRGB, lerpColor } from "@/utils/colorTemp";
 import { sunDirection, degToRad } from "@/utils/math";
 import type { Vec3 } from "@/types";
@@ -54,6 +54,17 @@ export interface FrameContext {
   visibility: number;
   cloudShadowStrength: number;
   fogColor: Vec3;
+
+  weatherType: WeatherType;
+  rainIntensity: RainIntensity;
+  rainFallSpeed: number;
+  rainParticleLength: number;
+  rainDensityFactor: number;
+  particleDensityMultiplier: number;
+  windParticleInfluence: number;
+  snowAccumulation: number;
+  lightningEnabled: boolean;
+  windVec: Vec3;
 }
 
 export function buildFrameContext(
@@ -131,6 +142,14 @@ export function buildFrameContext(
     0.82 + sunColor[2] * 0.05,
   ];
 
+  const rainCfg = RAIN_CONFIG[params.rainIntensity] ?? RAIN_CONFIG.moderate;
+  const windRad = degToRad(params.windDirection);
+  const windVec: Vec3 = [
+    Math.cos(windRad) * params.windSpeed * 10.0,
+    0,
+    Math.sin(windRad) * params.windSpeed * 10.0,
+  ];
+
   return {
     camPos: camera.position,
     forward: basis.forward,
@@ -180,6 +199,17 @@ export function buildFrameContext(
     visibility: params.visibility,
     cloudShadowStrength: params.cloudShadowStrength,
     fogColor,
+
+    weatherType: params.weatherType,
+    rainIntensity: params.rainIntensity,
+    rainFallSpeed: rainCfg.fallSpeed,
+    rainParticleLength: rainCfg.length,
+    rainDensityFactor: rainCfg.density,
+    particleDensityMultiplier: params.particleDensityMultiplier,
+    windParticleInfluence: params.windParticleInfluence,
+    snowAccumulation: params.snowAccumulation,
+    lightningEnabled: params.lightningEnabled,
+    windVec,
   };
 }
 

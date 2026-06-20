@@ -7,8 +7,9 @@ import type { FrameContext } from "../frameContext";
 import compositeFrag from "../shaders/composite.frag?raw";
 
 const UNIFORMS = [
-  "u_cloudTex", "u_atmosphereTex", "u_historyTex",
+  "u_cloudTex", "u_atmosphereTex", "u_historyTex", "u_weatherTex",
   "u_resolution", "u_jitter", "u_blendFactor", "u_exposure", "u_starIntensity",
+  "u_snowAccumulation", "u_hasWeather",
   "u_camForward", "u_camRight", "u_camUp", "u_tanHalfFov", "u_aspect", "u_time",
 ];
 
@@ -30,11 +31,14 @@ export class CompositePass {
     cloudTex: WebGLTexture,
     atmosphereTex: WebGLTexture,
     historyTex: WebGLTexture,
+    weatherTex: WebGLTexture | null,
     target: WebGLFramebuffer | null,
     width: number,
     height: number,
     jitter: [number, number],
     blendFactor: number,
+    snowAccumulation: number,
+    hasWeather: boolean,
   ): void {
     const gl = this.gl;
     const u = this.info.uniforms;
@@ -55,11 +59,21 @@ export class CompositePass {
     gl.bindTexture(gl.TEXTURE_2D, historyTex);
     gl.uniform1i(u.u_historyTex, 2);
 
+    gl.activeTexture(gl.TEXTURE3);
+    if (weatherTex) {
+      gl.bindTexture(gl.TEXTURE_2D, weatherTex);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+    gl.uniform1i(u.u_weatherTex, 3);
+
     gl.uniform2f(u.u_resolution, width, height);
     gl.uniform2f(u.u_jitter, jitter[0], jitter[1]);
     gl.uniform1f(u.u_blendFactor, blendFactor);
     gl.uniform1f(u.u_exposure, ctx.exposure);
     gl.uniform1f(u.u_starIntensity, ctx.starIntensity);
+    gl.uniform1f(u.u_snowAccumulation, snowAccumulation);
+    gl.uniform1f(u.u_hasWeather, hasWeather ? 1.0 : 0.0);
 
     gl.uniform3fv(u.u_camForward, ctx.forward);
     gl.uniform3fv(u.u_camRight, ctx.right);
