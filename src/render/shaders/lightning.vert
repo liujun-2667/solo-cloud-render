@@ -6,6 +6,7 @@ layout(location = 1) in float a_width;
 layout(location = 2) in float a_brightness;
 
 uniform mat4 u_viewProj;
+uniform vec3 u_camPos;
 
 out float v_width;
 out float v_brightness;
@@ -18,4 +19,9 @@ void main() {
 
   vec4 clip = u_viewProj * vec4(a_pos, 1.0);
   gl_Position = clip;
+
+  float dist = length(a_pos - u_camPos);
+  float perspectiveScale = max(2.0, 1200.0 / max(dist, 1.0));
+  gl_PointSize = a_width * perspectiveScale;
+  gl_PointSize = clamp(gl_PointSize, 4.0, 128.0);
 }

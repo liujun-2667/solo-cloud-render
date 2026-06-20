@@ -34,81 +34,84 @@ float hash(float n) {
   return fract(sin(n) * 43758.5453123);
 }
 
-vec3 hash3(vec3 p) {
-  p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
-            dot(p, vec3(269.5, 183.3, 246.1)),
-            dot(p, vec3(113.5, 271.9, 124.6)));
-  return fract(sin(p) * 43758.5453123);
-}
-
 void main() {
   v_type = u_particleType;
   float id = a_seed.w;
-  vec3 seed = a_seed.xyz;
 
-  float spawnInterval = 1.0 / max(0.001, u_spawnRate);
-  float particleTime = mod(u_time + id * spawnInterval, spawnInterval * 10000.0);
-  float lifeT = a_life.x;
-  float maxLife = a_life.y;
+  float r1 = hash(id * 0.13 + 0.1);
+  float r2 = hash(id * 0.27 + 0.2);
+  float r3 = hash(id * 0.41 + 0.3);
+  float r4 = hash(id * 0.71 + 0.4);
+  float r5 = hash(id * 1.31 + 0.5);
+  float r6 = hash(id * 2.11 + 0.6);
+  float r7 = hash(id * 3.71 + 0.7);
+  float r8 = hash(id * 5.31 + 0.8);
 
-  vec3 spawnOffset = hash3(vec3(id * 0.13, id * 0.27, id * 0.41)) - 0.5;
-  spawnOffset *= 2.0;
+  // 生成位置：围绕相机 xz，高度在 [groundY+50, cloudBase] 全范围分布
+  float angle = r1 * 6.2831853;
+  float radius = sqrt(r2) * u_spawnAreaRadius;
+  float startX = u_camPos.x + cos(angle) * radius;
+  float startZ = u_camPos.z + sin(angle) * radius;
+  float topY = u_cloudBase;
+  float bottomY = u_groundY + 50.0;
+  float startY = mix(bottomY, topY, r3);
 
-  float startX = spawnOffset.x * u_spawnAreaRadius;
-  float startZ = spawnOffset.z * u_spawnAreaRadius;
-  float startY = u_cloudBase + hash(id * 0.7) * u_cloudThickness * 0.3;
+  float effectiveFallSpeed = u_fallSpeed * (0.85 + r5 * 0.3);
+  float windFactor = u_windInfluence * (0.7 + r6 * 0.6);
 
-  float effectiveFallSpeed = u_fallSpeed * (0.8 + hash(id * 1.3) * 0.4);
-  float windFactor = u_windInfluence * (0.7 + hash(id * 2.1) * 0.6);
+  // 粒子完整下落时间 = 下落距离 / 速度
+  float fallDist = max(startY - u_groundY, 1.0);
+  float lifeTime = fallDist / max(effectiveFallSpeed, 1.0);
+
+  // 随机相位让粒子均匀分布在生命周期各阶段
+  float phase = r7;
+  float progress = mod(u_time / lifeTime + phase, 1.0);
+  float elapsed = progress * lifeTime;
 
   vec3 pos;
   float alpha = 1.0;
 
   if (u_particleType == 0) {
-    float t = particleTime;
-    pos.x = startX + u_windX * windFactor * t;
-    pos.z = startZ + u_windZ * windFactor * t;
-    pos.y = startY - effectiveFallSpeed * t;
+    // 雨滴：快速直线下落
+    pos.x = startX + u_windX * windFactor * elapsed;
+    pos.z = startZ + u_windZ * windFactor * elapsed;
+    pos.y = startY - effectiveFallSpeed * elapsed;
 
-    float totalFall = startY - u_groundY;
-    float fallT = clamp(t * effectiveFallSpeed / max(totalFall, 1.0), 0.0, 1.0);
-    alpha = 1.0 - smoothstep(0.85, 1.0, fallT);
-
+    alpha = 1.0 - smoothstep(0.8, 1.0, progress);
     if (pos.y <= u_groundY) {
       pos.y = u_groundY;
       alpha = 0.0;
     }
-
     v_speed = effectiveFallSpeed;
   } else {
-    float t = particleTime;
-    effectiveFallSpeed *= 0.25;
-    windFactor *= 3.0;
+    // 雪花：慢速下落 + 正弦摆动
+    float snowFallSpeed = effectiveFallSpeed * 0.4;
+    float snowWind = windFactor * 3.0;
+    float snowLife = fallDist / max(snowFallSpeed, 1.0);
+    progress = mod(u_time / snowLife + phase, 1.0);
+    elapsed = progress * snowLife;
 
-    float phase = hash(id * 3.7) * PI * 2.0;
-    float freq = 1.5 + hash(id * 5.3) * 2.5;
-    float swayX = sin(t * freq + phase) * 1.5;
-    float swayZ = cos(t * freq * 0.7 + phase * 1.3) * 1.2;
+    float swayPhase = r4 * PI * 2.0;
+    float swayFreq = 1.2 + r8 * 2.0;
+    float swayAmp = 1.8 + r5 * 1.5;
+    float swayX = sin(u_time * swayFreq + swayPhase) * swayAmp;
+    float swayZ = cos(u_time * swayFreq * 0.7 + swayPhase * 1.3) * swayAmp * 0.8;
 
-    pos.x = startX + u_windX * windFactor * t + swayX;
-    pos.z = startZ + u_windZ * windFactor * t + swayZ;
-    pos.y = startY - effectiveFallSpeed * t;
+    pos.x = startX + u_windX * snowWind * elapsed + swayX;
+    pos.z = startZ + u_windZ * snowWind * elapsed + swayZ;
+    pos.y = startY - snowFallSpeed * elapsed;
 
-    float totalFall = startY - u_groundY;
-    float fallT = clamp(t * effectiveFallSpeed / max(totalFall, 1.0), 0.0, 1.0);
-    alpha = 1.0 - smoothstep(0.9, 1.0, fallT);
-
+    alpha = 1.0 - smoothstep(0.85, 1.0, progress);
     if (pos.y <= u_groundY) {
       pos.y = u_groundY;
       alpha = 0.0;
     }
-
-    v_speed = effectiveFallSpeed;
+    v_speed = snowFallSpeed;
   }
 
   vec3 toCam = pos - u_camPos;
   v_dist = length(toCam);
-  float distFade = 1.0 - smoothstep(8000.0, 15000.0, v_dist);
+  float distFade = 1.0 - smoothstep(u_spawnAreaRadius * 0.8, u_spawnAreaRadius * 1.2, v_dist);
   alpha *= distFade;
   v_alpha = alpha;
 
@@ -116,12 +119,14 @@ void main() {
   gl_Position = clip;
 
   if (u_particleType == 0) {
-    float speedFactor = clamp(effectiveFallSpeed / 25.0, 0.3, 1.5);
-    float perspectiveScale = max(2.0, 80.0 / max(v_dist, 1.0));
-    gl_PointSize = u_particleLength * speedFactor * perspectiveScale;
+    float speedFactor = clamp(effectiveFallSpeed / 200.0, 0.4, 1.5);
+    float perspectiveScale = max(3.0, 600.0 / max(v_dist, 1.0));
+    gl_PointSize = u_particleLength * speedFactor * perspectiveScale * 0.5;
+    gl_PointSize = clamp(gl_PointSize, 2.0, 64.0);
   } else {
-    float size = 2.0 + hash(id * 7.9) * 4.0;
-    float perspectiveScale = max(1.0, 60.0 / max(v_dist, 1.0));
-    gl_PointSize = size * perspectiveScale;
+    float size = 3.0 + r8 * 4.0;
+    float perspectiveScale = max(2.0, 400.0 / max(v_dist, 1.0));
+    gl_PointSize = size * perspectiveScale * 0.3;
+    gl_PointSize = clamp(gl_PointSize, 2.0, 32.0);
   }
 }

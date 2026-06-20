@@ -80,7 +80,7 @@ export class LightningSystem {
   private nextLightningTime = 0;
   private currentFlash = 0;
 
-  generateBolt(cloudBase: number, cloudThickness: number, areaRadius: number): LightningBolt | null {
+  generateBolt(cloudBase: number, cloudThickness: number, areaRadius: number, time: number): LightningBolt | null {
     const startX = randRange(-areaRadius, areaRadius);
     const startZ = randRange(-areaRadius, areaRadius);
     const startY = cloudBase + randRange(0, cloudThickness * 0.5);
@@ -160,12 +160,33 @@ export class LightningSystem {
 
     return {
       segments,
-      startTime: performance.now() * 0.001,
+      startTime: time,
       duration: 0.2,
     };
   }
 
-  update(time: number, coverage: number, isStorm: boolean, lightningEnabled: boolean): void {
+  private computeBrightness(age: number, duration: number): number {
+    const t = age / duration;
+    let brightness: number;
+    if (t < 0.25) {
+      brightness = t / 0.25;
+    } else if (t < 0.75) {
+      brightness = 1.0;
+    } else {
+      brightness = 1.0 - (t - 0.75) / 0.25;
+    }
+    return Math.max(0, Math.min(1, brightness));
+  }
+
+  update(
+    time: number,
+    coverage: number,
+    isStorm: boolean,
+    lightningEnabled: boolean,
+    cloudBase: number,
+    cloudThickness: number,
+    areaRadius: number,
+  ): void {
     this.bolts = this.bolts.filter(
       (bolt) => time - bolt.startTime < bolt.duration,
     );
@@ -173,41 +194,23 @@ export class LightningSystem {
     this.currentFlash = 0;
     for (const bolt of this.bolts) {
       const age = time - bolt.startTime;
-      const t = age / bolt.duration;
-
-      let brightness: number;
-      if (t < 0.25) {
-        brightness = t / 0.25;
-      } else if (t < 0.75) {
-        brightness = 1.0;
-      } else {
-        brightness = 1.0 - (t - 0.75) / 0.25;
-      }
-      brightness = Math.max(0, Math.min(1, brightness));
-      this.currentFlash = Math.max(this.currentFlash, brightness * 0.6);
+      const brightness = this.computeBrightness(age, bolt.duration);
+      this.currentFlash = Math.max(this.currentFlash, brightness * 0.7);
     }
 
-    if (!lightningEnabled || !isStorm || coverage < 0.7) {
+    const canTrigger = lightningEnabled && isStorm && coverage >= 0.7;
+    if (canTrigger && this.bolts.length === 0 && time >= this.nextLightningTime) {
+      const bolt = this.generateBolt(cloudBase, cloudThickness, areaRadius, time);
+      if (bolt) {
+        this.bolts.push(bolt);
+      }
       this.nextLightningTime = time + randRange(3, 8);
       return;
     }
 
-    if (time >= this.nextLightningTime) {
+    if (!canTrigger && this.nextLightningTime < time + 1.0) {
       this.nextLightningTime = time + randRange(3, 8);
     }
-  }
-
-  tryTrigger(cloudBase: number, cloudThickness: number, areaRadius: number): void {
-    if (this.bolts.length === 0) {
-      const bolt = this.generateBolt(cloudBase, cloudThickness, areaRadius);
-      if (bolt) {
-        this.bolts.push(bolt);
-      }
-    }
-  }
-
-  shouldTrigger(time: number): boolean {
-    return this.bolts.length === 0 && time >= this.nextLightningTime;
   }
 
   getBolts(): LightningBolt[] {
@@ -226,15 +229,7 @@ export class LightningSystem {
       const t = age / bolt.duration;
       if (t < 0 || t > 1) continue;
 
-      let brightness: number;
-      if (t < 0.25) {
-        brightness = t / 0.25;
-      } else if (t < 0.75) {
-        brightness = 1.0;
-      } else {
-        brightness = 1.0 - (t - 0.75) / 0.25;
-      }
-      brightness = Math.max(0, brightness);
+      const brightness = this.computeBrightness(age, bolt.duration);
 
       for (const seg of bolt.segments) {
         all.push(seg.pos[0], seg.pos[1], seg.pos[2]);

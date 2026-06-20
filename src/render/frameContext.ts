@@ -143,7 +143,6 @@ export function buildFrameContext(
   ];
 
   const rainCfg = RAIN_CONFIG[params.rainIntensity] ?? RAIN_CONFIG.moderate;
-  const windRad = degToRad(params.windDirection);
   const windVec: Vec3 = [
     Math.cos(windRad) * params.windSpeed * 10.0,
     0,

@@ -61,10 +61,10 @@ export const MAX_RIPPLES = 2000;
 export const MAX_LIGHTNING_SEGMENTS = 256;
 
 export const RAIN_CONFIG: Record<string, { density: number; fallSpeed: number; length: number }> = {
-  light: { density: 0.15, fallSpeed: 8.0, length: 15.0 },
-  moderate: { density: 0.4, fallSpeed: 12.0, length: 25.0 },
-  heavy: { density: 0.7, fallSpeed: 16.0, length: 35.0 },
-  storm: { density: 1.0, fallSpeed: 22.0, length: 50.0 },
+  light: { density: 0.15, fallSpeed: 120.0, length: 18.0 },
+  moderate: { density: 0.4, fallSpeed: 180.0, length: 26.0 },
+  heavy: { density: 0.7, fallSpeed: 260.0, length: 34.0 },
+  storm: { density: 1.0, fallSpeed: 360.0, length: 46.0 },
 };
 
 export const PARAM_META: Record<

@@ -30,7 +30,7 @@ const RIPPLE_UNIFORMS = [
 ];
 
 const LIGHTNING_UNIFORMS = [
-  "u_viewProj",
+  "u_viewProj", "u_camPos",
 ];
 
 const FLASH_UNIFORMS = [
@@ -63,7 +63,7 @@ export class WeatherPass {
   private lightningSystem: LightningSystem;
   private timeSeconds = 0;
   private prevTime = 0;
-  private spawnAreaRadius = 10000;
+  private spawnAreaRadius = 3000;
   private groundY = 0;
 
   private transitionFactor = 1.0;
@@ -259,11 +259,15 @@ export class WeatherPass {
     this.updateWeatherTransition(ctx, time);
 
     const isStorm = ctx.rainIntensity === "storm";
-    this.lightningSystem.update(time, ctx.coverage, isStorm, ctx.lightningEnabled);
-
-    if (this.lightningSystem.shouldTrigger(time) && ctx.weatherType === "rain" && isStorm && ctx.lightningEnabled) {
-      this.lightningSystem.tryTrigger(ctx.cloudBase, ctx.cloudThickness, this.spawnAreaRadius);
-    }
+    this.lightningSystem.update(
+      time,
+      ctx.coverage,
+      isStorm,
+      ctx.lightningEnabled,
+      ctx.cloudBase,
+      ctx.cloudThickness,
+      this.spawnAreaRadius,
+    );
 
     const flashIntensity = this.lightningSystem.getFlashIntensity();
 
@@ -283,12 +287,12 @@ export class WeatherPass {
     let particleType = 0;
 
     if (ctx.weatherType === "rain" || (this.transitionFactor > 0 && this.currentWeather === "rain")) {
-      const density = ctx.rainDensityFactor * ctx.particleDensityMultiplier * ctx.coverage;
+      const density = ctx.rainDensityFactor * ctx.particleDensityMultiplier * Math.max(0.3, ctx.coverage);
       const spawnFade = ctx.weatherType === "rain" ? 1.0 : this.transitionFactor;
       activeParticles = Math.floor(MAX_PARTICLES * Math.min(1, density * spawnFade));
       particleType = 0;
     } else if (ctx.weatherType === "snow" || (this.transitionFactor > 0 && this.currentWeather === "snow")) {
-      const density = 0.5 * ctx.particleDensityMultiplier * ctx.coverage;
+      const density = 0.5 * ctx.particleDensityMultiplier * Math.max(0.3, ctx.coverage);
       const spawnFade = ctx.weatherType === "snow" ? 1.0 : this.transitionFactor;
       activeParticles = Math.floor(MAX_PARTICLES * 0.6 * Math.min(1, density * spawnFade));
       particleType = 1;
@@ -304,7 +308,7 @@ export class WeatherPass {
 
     const lightningResult = this.lightningSystem.flattenPositions(time);
     if (lightningResult.count > 0) {
-      this.renderLightning(viewProj, lightningResult.positions, lightningResult.count);
+      this.renderLightning(viewProj, camPos, lightningResult.positions, lightningResult.count);
     }
 
     gl.disable(gl.BLEND);
@@ -350,7 +354,7 @@ export class WeatherPass {
     gl.uniform1f(u.u_windZ, ctx.windVec[2]);
     gl.uniform1f(u.u_windInfluence, ctx.windParticleInfluence);
     gl.uniform1i(u.u_particleType, type);
-    gl.uniform1f(u.u_fallSpeed, type === 0 ? ctx.rainFallSpeed : ctx.rainFallSpeed * 0.25);
+    gl.uniform1f(u.u_fallSpeed, ctx.rainFallSpeed);
     gl.uniform1f(u.u_particleLength, type === 0 ? ctx.rainParticleLength : 4);
     gl.uniform1f(u.u_spawnRate, count / 5.0);
     gl.uniform1f(u.u_spawnAreaRadius, this.spawnAreaRadius);
@@ -385,6 +389,7 @@ export class WeatherPass {
 
   private renderLightning(
     viewProj: Float32Array,
+    camPos: number[],
     positions: Float32Array,
     count: number,
   ): void {
@@ -398,6 +403,7 @@ export class WeatherPass {
     gl.bindVertexArray(this.lightningVAO);
 
     gl.uniformMatrix4fv(u.u_viewProj, false, viewProj);
+    gl.uniform3fv(u.u_camPos, camPos);
 
     gl.drawArrays(gl.POINTS, 0, count);
     gl.bindVertexArray(null);
