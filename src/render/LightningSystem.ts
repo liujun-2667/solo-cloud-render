@@ -93,7 +93,7 @@ export class LightningSystem {
     const end: Vec3 = [endX, endY, endZ];
 
     const mainPoints: Vec3[] = [];
-    subdivide(start, end, 0, 4, 1.0, mainPoints);
+    subdivide(start, end, 0, 5, 1.0, mainPoints);
     mainPoints.push([...end]);
 
     const segments: LightningSegment[] = [];

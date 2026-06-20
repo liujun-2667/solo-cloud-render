@@ -11,6 +11,7 @@ uniform vec3 u_camPos;
 out float v_width;
 out float v_brightness;
 out vec3 v_worldPos;
+out float v_dist;
 
 void main() {
   v_worldPos = a_pos;
@@ -21,7 +22,9 @@ void main() {
   gl_Position = clip;
 
   float dist = length(a_pos - u_camPos);
-  float perspectiveScale = max(2.0, 1200.0 / max(dist, 1.0));
-  gl_PointSize = a_width * perspectiveScale;
-  gl_PointSize = clamp(gl_PointSize, 4.0, 128.0);
+  v_dist = dist;
+  float perspectiveScale = max(2.0, 2500.0 / max(dist, 1.0));
+  float worldWidth = a_width * 6.0;
+  gl_PointSize = worldWidth * perspectiveScale;
+  gl_PointSize = clamp(gl_PointSize, 8.0, 256.0);
 }

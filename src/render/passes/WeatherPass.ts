@@ -26,7 +26,7 @@ const PARTICLE_UNIFORMS = [
 ];
 
 const RIPPLE_UNIFORMS = [
-  "u_viewProj", "u_camRight", "u_camUp", "u_time",
+  "u_viewProj", "u_camRight", "u_camUp", "u_time", "u_camPos",
 ];
 
 const LIGHTNING_UNIFORMS = [
@@ -303,7 +303,8 @@ export class WeatherPass {
     }
 
     if (particleType === 0 && activeParticles > 0) {
-      this.renderRipples(viewProj, basis, time);
+      this.updateRipples(ctx, camPos, time);
+      this.renderRipples(viewProj, basis, camPos, time);
     }
 
     const lightningResult = this.lightningSystem.flattenPositions(time);
@@ -364,9 +365,33 @@ export class WeatherPass {
     gl.bindVertexArray(null);
   }
 
+  private updateRipples(ctx: FrameContext, camPos: number[], time: number): void {
+    const ripplesPerFrame = Math.floor(ctx.rainDensityFactor * 15 * ctx.particleDensityMultiplier);
+    const radius = this.spawnAreaRadius * 0.7;
+
+    for (let i = 0; i < ripplesPerFrame; i++) {
+      const r1 = Math.random();
+      const r2 = Math.random();
+      const angle = r1 * Math.PI * 2;
+      const r = Math.sqrt(r2) * radius;
+
+      const x = camPos[0] + Math.cos(angle) * r;
+      const z = camPos[2] + Math.sin(angle) * r;
+
+      this.rippleData[this.rippleIndex * 4 + 0] = x;
+      this.rippleData[this.rippleIndex * 4 + 1] = this.groundY;
+      this.rippleData[this.rippleIndex * 4 + 2] = z;
+      this.rippleData[this.rippleIndex * 4 + 3] = time;
+
+      this.rippleIndex = (this.rippleIndex + 1) % MAX_RIPPLES;
+      this.rippleCount = Math.min(this.rippleCount + 1, MAX_RIPPLES);
+    }
+  }
+
   private renderRipples(
     viewProj: Float32Array,
     basis: { right: number[]; up: number[] },
+    camPos: number[],
     time: number,
   ): void {
     const gl = this.gl;
@@ -382,6 +407,7 @@ export class WeatherPass {
     gl.uniform3fv(u.u_camRight, basis.right);
     gl.uniform3fv(u.u_camUp, basis.up);
     gl.uniform1f(u.u_time, time);
+    gl.uniform3fv(u.u_camPos, camPos);
 
     gl.drawArrays(gl.POINTS, 0, Math.min(this.rippleCount, MAX_RIPPLES));
     gl.bindVertexArray(null);
@@ -402,11 +428,15 @@ export class WeatherPass {
     gl.useProgram(this.lightningProgram.program);
     gl.bindVertexArray(this.lightningVAO);
 
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
     gl.uniformMatrix4fv(u.u_viewProj, false, viewProj);
     gl.uniform3fv(u.u_camPos, camPos);
 
     gl.drawArrays(gl.POINTS, 0, count);
     gl.bindVertexArray(null);
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   renderFlash(

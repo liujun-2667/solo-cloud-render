@@ -7,6 +7,7 @@ uniform mat4 u_viewProj;
 uniform vec3 u_camRight;
 uniform vec3 u_camUp;
 uniform float u_time;
+uniform vec3 u_camPos;
 
 out float v_age;
 out float v_maxAge;
@@ -30,11 +31,12 @@ void main() {
   gl_Position = clip;
 
   float progress = age / v_maxAge;
-  float rippleSize = 5.0 + progress * 40.0;
+  float rippleSize = 8.0 + progress * 60.0;
 
-  vec3 toCam = pos - (u_viewProj * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vec3 toCam = pos - u_camPos;
   v_dist = length(toCam);
-  float perspectiveScale = max(1.0, 200.0 / max(v_dist, 1.0));
+  float perspectiveScale = max(1.0, 250.0 / max(v_dist, 1.0));
 
   gl_PointSize = rippleSize * perspectiveScale;
+  gl_PointSize = clamp(gl_PointSize, 2.0, 80.0);
 }
